@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lamarck-translator"
+version = "0.1.0"
+description = "Windows selection and screenshot translator powered by Codex"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "PySide6==6.8.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "pyinstaller>=6,<7",
+]
+
+[project.scripts]
+lamarck-translator = "lamarck_translator.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
