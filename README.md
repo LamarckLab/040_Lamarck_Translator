@@ -95,7 +95,7 @@ Run `codex login` once before first use. Codex CLI accepts either a ChatGPT logi
 2. Hold the left button and drag a box over the content.
 3. Release to submit, or press `Esc` to cancel.
 
-The tray menu triggers the same two actions, and can also check the Codex login status or quit the app. The window title area shows the OpenAI account the local Codex CLI is currently signed in as; after switching accounts it refreshes on the next translation.
+The tray menu triggers the same two actions, and can also check the Codex login status or quit the app. The window title area shows the OpenAI account the local Codex CLI is currently signed in as; after switching accounts it refreshes on the next translation. The line above it names the model and reasoning effort every translation runs with, exactly as they are passed to Codex; change them in the configuration file.
 
 > **Tip:** some apps are slow to fill the clipboard with large selections. Raise `clipboard_wait_ms` if `Alt+C` comes back empty on long passages.
 

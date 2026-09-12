@@ -41,6 +41,7 @@ class TranslatorApp:
         self.result_window = ResultWindow()
         self.result_window.setWindowIcon(app_icon)
         self.result_window.set_brand_icon(app_icon)
+        self.result_window.set_backend_info(config.model, config.reasoning_effort)
         self._refresh_account_identity()
         self.selection_reader = SelectionReader(
             wait_ms=config.clipboard_wait_ms,

@@ -13,8 +13,33 @@ from lamarck_translator.result_window import (
     HTTOPRIGHT,
     ResultWindow,
     TranslationPairCard,
+    format_backend_info,
     resize_hit_test,
 )
+
+
+def test_backend_info_line_names_the_model_and_effort_in_use() -> None:
+    assert format_backend_info("gpt-5.6-sol", "high") == (
+        "Powered by Codex  ·  gpt-5.6-sol  ·  high effort"
+    )
+    # an empty model means "whatever Codex defaults to"
+    assert format_backend_info("", "high") == (
+        "Powered by Codex  ·  Codex default model  ·  high effort"
+    )
+    # an empty effort is not passed to codex, so it is not advertised either
+    assert format_backend_info("gpt-5.6-sol", "  ") == "Powered by Codex  ·  gpt-5.6-sol"
+
+
+def test_header_subtitle_follows_the_configured_backend() -> None:
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+
+    window.set_backend_info("gpt-5.6-sol", "high")
+
+    assert window.subtitle_label.text() == (
+        "Powered by Codex  ·  gpt-5.6-sol  ·  high effort"
+    )
+    window.close()
 
 
 def test_bilingual_result_builds_linked_pair_cards() -> None:

@@ -75,6 +75,16 @@ def resize_hit_test(
     return HTCLIENT
 
 
+def format_backend_info(model: str, effort: str) -> str:
+    """Subtitle line naming the model and effort every translation actually uses."""
+    # The raw config values are shown verbatim, so the header can never drift
+    # from what is handed to codex exec.
+    parts = ["Powered by Codex", model.strip() or "Codex default model"]
+    if effort.strip():
+        parts.append(f"{effort.strip()} effort")
+    return "  ·  ".join(parts)
+
+
 WINDOW_STYLE = """
 QWidget#resultWindow {
     background: #F4F7FB;
@@ -555,8 +565,9 @@ class ResultWindow(QWidget):
 
         title = QLabel("Lamarck Translator")
         title.setObjectName("titleLabel")
-        subtitle = QLabel("Powered by Codex  ·  GPT-5.6 Sol / High")
-        subtitle.setObjectName("subtitleLabel")
+        self.subtitle_label = QLabel("Powered by Codex")
+        self.subtitle_label.setObjectName("subtitleLabel")
+        self.subtitle_label.setToolTip("Model and reasoning effort used for every translation")
         self.account_label = QLabel("Codex account unavailable")
         self.account_label.setObjectName("accountLabel")
         self.account_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -565,7 +576,7 @@ class ResultWindow(QWidget):
         title_stack.setContentsMargins(0, 0, 0, 0)
         title_stack.setSpacing(1)
         title_stack.addWidget(title)
-        title_stack.addWidget(subtitle)
+        title_stack.addWidget(self.subtitle_label)
         title_stack.addWidget(self.account_label)
 
         self.status_pill = QFrame()
@@ -663,6 +674,9 @@ class ResultWindow(QWidget):
 
     def set_account_identity(self, text: str) -> None:
         self.account_label.setText(text or "Codex account unavailable")
+
+    def set_backend_info(self, model: str, effort: str) -> None:
+        self.subtitle_label.setText(format_backend_info(model, effort))
 
     def _set_status(self, text: str, state: str) -> None:
         self.status.setText(text)
