@@ -3,7 +3,7 @@ $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pythonExe = Join-Path $projectRoot ".venv\Scripts\python.exe"
 
 if (-not (Test-Path -LiteralPath $pythonExe)) {
-    Write-Host "未找到 .venv，正在创建虚拟环境..."
+    Write-Host "No .venv found, creating the virtual environment..."
     python -m venv (Join-Path $projectRoot ".venv")
     & $pythonExe -m pip install -e $projectRoot
 }
