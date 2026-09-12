@@ -30,6 +30,18 @@ def test_backend_info_line_names_the_model_and_effort_in_use() -> None:
     assert format_backend_info("gpt-5.6-sol", "  ") == "Powered by Codex  ·  gpt-5.6-sol"
 
 
+def test_result_window_is_not_permanently_on_top() -> None:
+    # It must drop behind whatever the user clicks next, or it covers the text
+    # they are trying to select for the next translation.
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+
+    flags = window.windowFlags()
+    assert not (flags & Qt.WindowType.WindowStaysOnTopHint)
+    assert flags & Qt.WindowType.FramelessWindowHint
+    window.close()
+
+
 def test_header_subtitle_follows_the_configured_backend() -> None:
     QApplication.instance() or QApplication([])
     window = ResultWindow()

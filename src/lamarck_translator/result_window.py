@@ -46,6 +46,12 @@ HTBOTTOMLEFT = 16
 HTBOTTOMRIGHT = 17
 RESIZE_BORDER_DIP = 7
 
+HWND_TOPMOST = -1
+HWND_NOTOPMOST = -2
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
+SWP_NOACTIVATE = 0x0010
+
 
 def resize_hit_test(
     x: int, y: int, width: int, height: int, border: int
@@ -525,9 +531,11 @@ class ResultWindow(QWidget):
         super().__init__()
         self.setObjectName("resultWindow")
         self.setWindowTitle("Lamarck Translator")
+        # Deliberately not WindowStaysOnTopHint: the window must drop behind
+        # whatever the user clicks next, or it covers the text they want to
+        # select. _raise_above_foreground() puts it in front on each show.
         self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Window
+            Qt.WindowType.Window
             | Qt.WindowType.FramelessWindowHint
         )
         self.setMinimumSize(600, 430)
@@ -764,6 +772,36 @@ class ResultWindow(QWidget):
             self.show()
         self.raise_()
         self.activateWindow()
+        self._raise_above_foreground()
+
+    def _raise_above_foreground(self) -> None:
+        """Put the window in front once, without making it permanently topmost.
+
+        Alt+C fires while another app owns the foreground, and Windows lets a
+        background process raise a window far less readily than it lets one set
+        topmost. Setting topmost and immediately clearing it wins the race, then
+        leaves normal stacking so the next click sends this window behind.
+        """
+        if sys.platform != "win32":
+            return
+        handle = self.windowHandle()
+        if handle is None:
+            return
+        user32 = ctypes.windll.user32
+        user32.SetWindowPos.argtypes = (
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        )
+        user32.SetWindowPos.restype = wintypes.BOOL
+        hwnd = wintypes.HWND(int(handle.winId()))
+        flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+        user32.SetWindowPos(hwnd, wintypes.HWND(HWND_TOPMOST), 0, 0, 0, 0, flags)
+        user32.SetWindowPos(hwnd, wintypes.HWND(HWND_NOTOPMOST), 0, 0, 0, 0, flags)
 
     def nativeEvent(self, event_type, message):  # noqa: N802, ANN001
         if sys.platform == "win32" and not self.isMaximized():
