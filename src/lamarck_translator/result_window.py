@@ -694,6 +694,33 @@ class ResultWindow(QWidget):
             widget.style().polish(widget)
             widget.update()
 
+    def show_welcome(self) -> None:
+        """Opened on launch, so double-clicking the exe shows something."""
+        self._set_status("Ready", "ready")
+        self.section.setText("Ready")
+        self.message_output.setPlainText(
+            "Select English text anywhere and press Alt+C.\n"
+            "Press Alt+S to drag a box over a scanned page or a figure.\n\n"
+            "This window steps aside on its own: click any other app and it "
+            "drops behind, and the next translation brings it back."
+        )
+        self.content_stack.setCurrentWidget(self.message_output)
+        self._copy_text = ""
+        self.copy_button.setEnabled(False)
+        self._move_to_screen_center()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self._raise_above_foreground()
+
+    def _move_to_screen_center(self) -> None:
+        screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        self.move(area.center().x() - self.width() // 2,
+                  area.center().y() - self.height() // 2)
+
     def show_loading(self, label: str) -> None:
         self._set_status(label, "loading")
         self.section.setText("Translation")

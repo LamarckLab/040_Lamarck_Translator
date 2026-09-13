@@ -258,6 +258,7 @@ def main() -> int:
         return 1
     controller = TranslatorApp(qt_app, config)
     qt_app._translator_controller = controller  # keep the controller alive
+    controller.result_window.show_welcome()
     return qt_app.exec()
 
 

@@ -42,6 +42,22 @@ def test_result_window_is_not_permanently_on_top() -> None:
     window.close()
 
 
+def test_launching_opens_a_ready_window_instead_of_only_a_tray_icon() -> None:
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+
+    window.show_welcome()
+
+    assert window.isVisible()
+    assert window.status.text() == "Ready"
+    assert window.status_pill.property("state") == "ready"
+    assert not window.copy_button.isEnabled(), "there is nothing to copy yet"
+    body = window.message_output.toPlainText()
+    assert "Alt+C" in body and "Alt+S" in body
+    window.close()
+
+
 def test_an_open_window_is_not_dragged_to_the_cursor_again() -> None:
     # A translation moves through loading -> result. Only the first of those
     # may place the window, or it jumps to wherever the pointer drifted and
