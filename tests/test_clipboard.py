@@ -61,6 +61,57 @@ def test_reader_retries_when_clipboard_stays_empty(monkeypatch) -> None:
     assert scheduled[0][1].__name__ == "_begin_copy_attempt"
 
 
+class _RecordingClipboard:
+    def __init__(self) -> None:
+        self.restored: object = None
+
+    def setMimeData(self, data: object) -> None:  # noqa: N802
+        self.restored = data
+
+
+def _fake_gui(clipboard: _RecordingClipboard):
+    return type("FakeGuiApplication", (), {"clipboard": staticmethod(lambda: clipboard)})
+
+
+def test_failed_capture_restores_the_clipboard_even_when_restore_is_off(monkeypatch) -> None:
+    # capture() always clears, so a failed copy must never leave the user's
+    # clipboard emptied, whatever restore_clipboard says.
+    reader = SelectionReader(wait_ms=220, restore_clipboard=False)
+    saved = object()
+    reader._saved = saved
+    clipboard = _RecordingClipboard()
+    monkeypatch.setattr(clipboard_module, "QGuiApplication", _fake_gui(clipboard))
+
+    reader._complete("")
+
+    assert clipboard.restored is saved
+    assert reader._saved is None
+
+
+def test_successful_capture_leaves_the_selection_when_restore_is_off(monkeypatch) -> None:
+    reader = SelectionReader(wait_ms=220, restore_clipboard=False)
+    reader._saved = object()
+    clipboard = _RecordingClipboard()
+    monkeypatch.setattr(clipboard_module, "QGuiApplication", _fake_gui(clipboard))
+
+    reader._complete("copied text")
+
+    assert clipboard.restored is None
+    assert reader._saved is None
+
+
+def test_successful_capture_restores_the_clipboard_by_default(monkeypatch) -> None:
+    reader = SelectionReader(wait_ms=220, restore_clipboard=True)
+    saved = object()
+    reader._saved = saved
+    clipboard = _RecordingClipboard()
+    monkeypatch.setattr(clipboard_module, "QGuiApplication", _fake_gui(clipboard))
+
+    reader._complete("copied text")
+
+    assert clipboard.restored is saved
+
+
 def test_reader_uses_three_distinct_copy_methods(monkeypatch) -> None:
     reader = SelectionReader(wait_ms=220, restore_clipboard=True)
     calls: list[tuple[str, int]] = []

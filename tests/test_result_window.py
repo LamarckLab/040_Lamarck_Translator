@@ -42,6 +42,38 @@ def test_result_window_is_not_permanently_on_top() -> None:
     window.close()
 
 
+def test_an_open_window_is_not_dragged_to_the_cursor_again() -> None:
+    # A translation moves through loading -> result. Only the first of those
+    # may place the window, or it jumps to wherever the pointer drifted and
+    # undoes any move the user made while waiting.
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+
+    window.show_loading("Translating…")
+    window.move(140, 160)
+
+    window.show_result("the translation arrives a few seconds later")
+
+    assert (window.x(), window.y()) == (140, 160)
+    window.close()
+
+
+def test_a_hidden_window_is_placed_at_the_cursor_again() -> None:
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    placed: list[int] = []
+    window._move_near_cursor = lambda: placed.append(1)
+
+    window.show_result("first")
+    window.hide()
+    window.show_result("second")
+
+    assert placed == [1, 1], "each fresh popup places itself, repeats do not"
+    window.close()
+
+
 def test_header_subtitle_follows_the_configured_backend() -> None:
     QApplication.instance() or QApplication([])
     window = ResultWindow()

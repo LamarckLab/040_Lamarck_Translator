@@ -42,6 +42,10 @@ class ScreenshotOverlay(QWidget):
         self._end: QPoint | None = None
 
     def begin(self) -> None:
+        # A second Alt+S while the overlay is up would grab the screen with the
+        # dimming layer already on it, capturing the overlay itself.
+        if self.isVisible():
+            return
         screen = QGuiApplication.screenAt(self._cursor_position())
         if screen is None:
             screen = QGuiApplication.primaryScreen()

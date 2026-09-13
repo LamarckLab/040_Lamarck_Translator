@@ -15,7 +15,7 @@ from .identity import load_codex_identity
 from .prompts import build_image_prompt, build_text_prompt
 from .result_window import ResultWindow
 from .screenshot import ScreenshotOverlay
-from .worker import TranslationWorker
+from .worker import LoginStatusWorker, TranslationWorker
 
 
 TEXT_HOTKEY_ID = 1
@@ -151,6 +151,14 @@ class TranslatorApp:
         label: str,
         source_text: str | None,
     ) -> None:
+        # The hotkey entry points check this too, but a screenshot selection
+        # started before a text translation can still land here mid-flight.
+        if self._busy:
+            if image is not None:
+                # Nothing will run the worker that would have deleted it.
+                image.unlink(missing_ok=True)
+            self.tray.showMessage("Lamarck Translator", "A translation is already in progress.")
+            return
         self._busy = True
         self._last_prompt = prompt
         self._last_image = image
@@ -201,14 +209,23 @@ class TranslatorApp:
         )
 
     def check_codex_status(self) -> None:
-        try:
-            status = self.backend.login_status()
-        except Exception as exc:
-            self.result_window.show_error(str(exc))
-        else:
-            identity = load_codex_identity()
-            self.result_window.set_account_identity(identity.display_text)
-            self.result_window.show_result(f"{status}\n{identity.display_text}")
+        if self._busy:
+            self.tray.showMessage("Lamarck Translator", "A translation is already in progress.")
+            return
+        self._busy = True
+        self.result_window.show_loading("Checking Codex…")
+        worker = LoginStatusWorker(self.backend)
+        self._active_worker = worker
+        worker.signals.succeeded.connect(self._status_succeeded)
+        worker.signals.failed.connect(self._translation_failed)
+        worker.signals.finished.connect(self._worker_finished)
+        self.thread_pool.start(worker)
+
+    def _status_succeeded(self, status: str) -> None:
+        self._busy = False
+        identity = load_codex_identity()
+        self.result_window.set_account_identity(identity.display_text)
+        self.result_window.show_result(f"{status}\n{identity.display_text}")
 
     def _refresh_account_identity(self) -> None:
         self.result_window.set_account_identity(load_codex_identity().display_text)

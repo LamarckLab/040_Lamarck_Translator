@@ -13,6 +13,26 @@ class WorkerSignals(QObject):
     finished = Signal()
 
 
+class LoginStatusWorker(QRunnable):
+    """`codex login status` spawns a process; keep it off the UI thread."""
+
+    def __init__(self, backend: CodexCLIBackend) -> None:
+        super().__init__()
+        self.backend = backend
+        self.signals = WorkerSignals()
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            status = self.backend.login_status()
+        except Exception as exc:  # surfaced in the result window
+            self.signals.failed.emit(str(exc))
+        else:
+            self.signals.succeeded.emit(status)
+        finally:
+            self.signals.finished.emit()
+
+
 class TranslationWorker(QRunnable):
     def __init__(
         self,

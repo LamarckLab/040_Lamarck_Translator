@@ -104,7 +104,10 @@ class SelectionReader(QObject):
         self._foreground_window = user32.GetForegroundWindow()
         self._focused_window = self._get_focused_window(self._foreground_window)
         clipboard = QGuiApplication.clipboard()
-        self._saved = clone_mime_data(clipboard.mimeData()) if self.restore_clipboard else None
+        # Always snapshot, because capture() always clears. restore_clipboard
+        # decides what happens after a *successful* copy; a failed one must put
+        # the user's clipboard back either way.
+        self._saved = clone_mime_data(clipboard.mimeData())
         clipboard.clear()
         self._release_checks = 0
         self._clipboard_checks = 0
@@ -157,9 +160,12 @@ class SelectionReader(QObject):
 
     def _complete(self, text: str) -> None:
         clipboard = QGuiApplication.clipboard()
-        if self._saved is not None:
+        # On success, restore_clipboard says whether to put the old contents
+        # back or leave the copied selection there. On failure there is nothing
+        # worth keeping, so never leave the clipboard emptied by capture().
+        if self._saved is not None and (self.restore_clipboard or not text):
             clipboard.setMimeData(self._saved)
-            self._saved = None
+        self._saved = None
         self._capturing = False
         self._foreground_window = None
         self._focused_window = None

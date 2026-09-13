@@ -759,13 +759,22 @@ class ResultWindow(QWidget):
             if widget is not None:
                 widget.deleteLater()
 
-    def _show_near_cursor(self) -> None:
+    def _move_near_cursor(self) -> None:
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
-        if screen is not None:
-            area = screen.availableGeometry()
-            x = min(QCursor.pos().x() + 18, area.right() - self.width())
-            y = min(QCursor.pos().y() + 18, area.bottom() - self.height())
-            self.move(max(area.left(), x), max(area.top(), y))
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        x = min(QCursor.pos().x() + 18, area.right() - self.width())
+        y = min(QCursor.pos().y() + 18, area.bottom() - self.height())
+        self.move(max(area.left(), x), max(area.top(), y))
+
+    def _show_near_cursor(self) -> None:
+        # Only place the window when it is coming back from hidden. A
+        # translation moves through several states, and repositioning on each
+        # one would drag the window to wherever the pointer drifted while the
+        # user waited, and undo any move or resize they made themselves.
+        if not self.isVisible():
+            self._move_near_cursor()
         if self.isMinimized():
             self.showNormal()
         else:
