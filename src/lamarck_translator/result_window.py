@@ -6,7 +6,7 @@ import sys
 from string import Template
 from ctypes import wintypes
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QCursor,
@@ -52,6 +52,8 @@ RESIZE_BORDER_DIP = 7
 DEFAULT_PAIR_FONT_PX = 15
 MIN_PAIR_FONT_PX = 10
 MAX_PAIR_FONT_PX = 32
+# Pointer slack that still counts as a click rather than a text drag.
+CLICK_SLOP_PX = 4
 
 HWND_TOPMOST = -1
 HWND_NOTOPMOST = -2
@@ -127,6 +129,12 @@ LIGHT_PALETTE = {
     "on_accent": "#FFFFFF",
     "pair_border": "#E5EAF2",
     "pair_hover_bg": "#F2EEFF",
+    "pair_marked_bg": "#E8F7EE",
+    "pair_marked_border": "#8ED2AD",
+    "pair_marked_hover_bg": "#D5EEE0",
+    "pair_marked_hover_border": "#5CBE8C",
+    "pair_marked_source": "#12613C",
+    "pair_marked_translation": "#2A7550",
     "pair_hover_border": "#AF9BFA",
     "pair_hover_source": "#40269A",
     "pair_hover_translation": "#5A3FB0",
@@ -184,6 +192,12 @@ DARK_PALETTE = {
     "on_accent": "#FFFFFF",
     "pair_border": "#333D4C",
     "pair_hover_bg": "#272040",
+    "pair_marked_bg": "#17301F",
+    "pair_marked_border": "#2F6B47",
+    "pair_marked_hover_bg": "#1E3F2B",
+    "pair_marked_hover_border": "#439762",
+    "pair_marked_source": "#8FE3B4",
+    "pair_marked_translation": "#77C89C",
     "pair_hover_border": "#7C63DE",
     "pair_hover_source": "#CDBCFF",
     "pair_hover_translation": "#B3A2F0",
@@ -400,6 +414,20 @@ QFrame#translationPairCard[hovered="true"] QLabel#sourceText {
 }
 QFrame#translationPairCard[hovered="true"] QLabel#translationText {
     color: $pair_hover_translation;
+}
+QFrame#translationPairCard[marked="true"] {
+    background: $pair_marked_bg;
+    border-color: $pair_marked_border;
+}
+QFrame#translationPairCard[marked="true"][hovered="true"] {
+    background: $pair_marked_hover_bg;
+    border-color: $pair_marked_hover_border;
+}
+QFrame#translationPairCard[marked="true"] QLabel#sourceText {
+    color: $pair_marked_source;
+}
+QFrame#translationPairCard[marked="true"] QLabel#translationText {
+    color: $pair_marked_translation;
 }
 QPushButton {
     min-height: 36px;
@@ -688,6 +716,7 @@ class TranslationPairCard(QFrame):
         super().__init__(parent)
         self.setObjectName("translationPairCard")
         self.setProperty("hovered", False)
+        self.setProperty("marked", False)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 11, 14, 12)
@@ -727,9 +756,19 @@ class TranslationPairCard(QFrame):
             label.setStyleSheet(f"font-size: {font_px}px;")
 
     def set_hovered(self, hovered: bool) -> None:
-        if self.property("hovered") == hovered:
+        self._set_state("hovered", hovered)
+
+    def is_marked(self) -> bool:
+        return bool(self.property("marked"))
+
+    def toggle_marked(self) -> None:
+        """Sticky "I have read this", cleared only by another click."""
+        self._set_state("marked", not self.is_marked())
+
+    def _set_state(self, name: str, value: bool) -> None:
+        if self.property(name) == value:
             return
-        self.setProperty("hovered", hovered)
+        self.setProperty(name, value)
         for widget in (self, self.source_label, self.translation_label):
             widget.style().unpolish(widget)
             widget.style().polish(widget)
@@ -763,6 +802,7 @@ class ResultWindow(QWidget):
         self.setStyleSheet(build_window_style(self._painted_theme))
         self._copy_text = ""
         self._pair_font_px = DEFAULT_PAIR_FONT_PX
+        self._press_origin: QPoint | None = None
         self._build_ui()
         self.title_bar.theme_button.set_dark(self._painted_theme == "dark")
         self._set_status("Ready", "ready")
@@ -981,6 +1021,15 @@ class ResultWindow(QWidget):
         if announce:
             self.pair_font_size_changed.emit(font_px)
 
+    @staticmethod
+    def _card_for(widget: object) -> "TranslationPairCard | None":
+        """The card a click landed on, whether on it or on one of its labels."""
+        while isinstance(widget, QWidget):
+            if isinstance(widget, TranslationPairCard):
+                return widget
+            widget = widget.parentWidget()
+        return None
+
     def _schedule_pair_hover_sync(self) -> None:
         # Deferred: during a leave or a scroll the layout has not settled yet,
         # so the cursor test would read stale geometry.
@@ -1022,6 +1071,19 @@ class ResultWindow(QWidget):
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
         if event.type() in (QEvent.Type.Enter, QEvent.Type.Leave):
             self._schedule_pair_hover_sync()
+        elif event.type() == QEvent.Type.MouseButtonPress:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._press_origin = event.globalPosition().toPoint()
+        elif event.type() == QEvent.Type.MouseButtonRelease:
+            if event.button() == Qt.MouseButton.LeftButton:
+                card = self._card_for(watched)
+                origin, self._press_origin = self._press_origin, None
+                # Only a click marks. A drag is the user selecting text, and
+                # the labels stay selectable, so the two must not collide.
+                if card is not None and origin is not None:
+                    moved = (event.globalPosition().toPoint() - origin).manhattanLength()
+                    if moved <= CLICK_SLOP_PX:
+                        card.toggle_marked()
         if (
             watched is self.pairs_scroll.viewport()
             and event.type() == QEvent.Type.Wheel

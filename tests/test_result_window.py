@@ -425,3 +425,61 @@ def test_scrolling_under_a_still_pointer_moves_the_highlight() -> None:
     assert lit() != [0], "the card scrolled away and must not stay lit"
     assert len(lit()) <= 1
     window.close()
+
+
+def test_clicking_marks_a_sentence_as_read_until_clicked_again() -> None:
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QMouseEvent
+
+    app, window, cards, cursor = _six_card_window()
+    card = cards[1]
+
+    def click(widget, drag: int = 0):
+        local = QPointF(10, 10)
+        start = widget.mapToGlobal(QPoint(10, 10))
+        for kind, at in (
+            (QEvent.Type.MouseButtonPress, start),
+            (QEvent.Type.MouseButtonRelease, start + QPoint(drag, 0)),
+        ):
+            app.sendEvent(widget, QMouseEvent(
+                kind, local, QPointF(at), Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+            ))
+        app.processEvents()
+
+    assert card.is_marked() is False
+    click(card)
+    assert card.is_marked() is True, "a click marks the sentence"
+    click(card)
+    assert card.is_marked() is False, "clicking again clears it"
+
+    # marking one sentence leaves the others alone
+    click(cards[3])
+    assert [c.is_marked() for c in cards] == [False, False, False, True, False, False]
+
+    # clicking the text itself works, dragging across it selects instead
+    click(cards[0].translation_label)
+    assert cards[0].is_marked() is True
+    click(cards[0].translation_label, drag=40)
+    assert cards[0].is_marked() is True, "a drag selects text, it must not toggle"
+    window.close()
+
+
+def test_the_mark_and_the_hover_highlight_coexist() -> None:
+    from lamarck_translator.result_window import DARK_PALETTE, LIGHT_PALETTE
+
+    app, window, cards, cursor = _six_card_window()
+    card = cards[0]
+    card.toggle_marked()
+    _point_at(app, card, cursor)
+
+    assert card.is_marked() is True
+    assert card.property("hovered") is True, "hover still tracks a marked card"
+
+    for palette in (LIGHT_PALETTE, DARK_PALETTE):
+        for token in ("pair_marked_bg", "pair_marked_hover_bg", "pair_marked_source"):
+            assert token in palette
+        assert palette["pair_marked_bg"] != palette["pair_marked_hover_bg"], (
+            "a marked card must still react to the pointer"
+        )
+    window.close()
