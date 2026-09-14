@@ -113,6 +113,7 @@ LIGHT_PALETTE = {
     "btn_hover_bg": "#F3F6FB",
     "btn_hover_border": "#B9C5D7",
     "card": "#FFFFFF",
+    "credit_fg": "#7C63DE",
     "card_border": "#E3E9F2",
     "close_hover_bg": "#FCE8EA",
     "close_hover_fg": "#C43242",
@@ -169,6 +170,7 @@ DARK_PALETTE = {
     "btn_hover_bg": "#2A323F",
     "btn_hover_border": "#4A5566",
     "card": "#1C222D",
+    "credit_fg": "#A78BFA",
     "card_border": "#2C3542",
     "close_hover_bg": "#3A2228",
     "close_hover_fg": "#FF8A96",
@@ -294,6 +296,13 @@ QLabel#subtitleLabel {
 }
 QLabel#accountLabel {
     color: $account_fg;
+    font-size: 11px;
+    font-weight: 600;
+}
+QLabel#creditLabel {
+    color: $credit_fg;
+    background: transparent;
+    font-family: "Segoe UI", "Microsoft YaHei UI";
     font-size: 11px;
     font-weight: 600;
 }
@@ -824,10 +833,24 @@ class ResultWindow(QWidget):
         status_layout.addWidget(self.status_dot)
         status_layout.addWidget(self.status)
 
+        self.credit_label = QLabel("Developed by L. Mingkai")
+        self.credit_label.setObjectName("creditLabel")
+        self.credit_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.credit_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        status_stack = QVBoxLayout()
+        status_stack.setContentsMargins(0, 0, 0, 0)
+        status_stack.setSpacing(7)
+        status_stack.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignRight)
+        status_stack.addWidget(self.credit_label, 0, Qt.AlignmentFlag.AlignRight)
+
         header_layout.addWidget(self.brand_mark)
         header_layout.addLayout(title_stack)
         header_layout.addStretch(1)
-        header_layout.addWidget(self.status_pill)
+        header_layout.addLayout(status_stack)
         body_layout.addWidget(header)
 
         card = QFrame()

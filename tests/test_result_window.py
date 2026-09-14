@@ -13,6 +13,7 @@ from lamarck_translator.result_window import (
     HTTOPRIGHT,
     ResultWindow,
     TranslationPairCard,
+    THEMES,
     format_backend_info,
     resize_hit_test,
 )
@@ -331,4 +332,19 @@ def test_unknown_theme_names_fall_back_to_following_the_system() -> None:
     assert window.theme() == "system"
     assert window.painted_theme() == resolve_theme("system")
     assert window.painted_theme() in ("light", "dark")
+    window.close()
+
+
+def test_the_author_credit_is_shown_and_themed() -> None:
+    from lamarck_translator.result_window import DARK_PALETTE, LIGHT_PALETTE
+
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+
+    assert window.credit_label.text() == "Developed by L. Mingkai"
+    assert "credit_fg" in LIGHT_PALETTE and "credit_fg" in DARK_PALETTE
+    assert LIGHT_PALETTE["credit_fg"] != DARK_PALETTE["credit_fg"]
+    for theme in ("light", "dark"):
+        window.set_theme(theme)
+        assert f"color: {THEMES[theme]['credit_fg']}" in window.styleSheet()
     window.close()
