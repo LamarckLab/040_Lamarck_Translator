@@ -115,7 +115,6 @@ LIGHT_PALETTE = {
     "btn_hover_bg": "#F3F6FB",
     "btn_hover_border": "#B9C5D7",
     "card": "#FFFFFF",
-    "credit_fg": "#8E86AE",
     "card_border": "#E3E9F2",
     "close_hover_bg": "#FCE8EA",
     "close_hover_fg": "#C43242",
@@ -178,7 +177,6 @@ DARK_PALETTE = {
     "btn_hover_bg": "#2A323F",
     "btn_hover_border": "#4A5566",
     "card": "#1C222D",
-    "credit_fg": "#7E77A0",
     "card_border": "#2C3542",
     "close_hover_bg": "#3A2228",
     "close_hover_fg": "#FF8A96",
@@ -314,11 +312,10 @@ QLabel#accountLabel {
     font-weight: 600;
 }
 QLabel#creditLabel {
-    color: $credit_fg;
+    color: $account_fg;
     background: transparent;
-    font-family: "Segoe UI", "Microsoft YaHei UI";
-    font-size: 10px;
-    font-weight: 500;
+    font-size: 11px;
+    font-weight: 600;
 }
 QFrame#statusPill {
     border-radius: 12px;

@@ -335,18 +335,24 @@ def test_unknown_theme_names_fall_back_to_following_the_system() -> None:
     window.close()
 
 
-def test_the_author_credit_is_shown_and_themed() -> None:
-    from lamarck_translator.result_window import DARK_PALETTE, LIGHT_PALETTE
-
+def test_the_author_credit_matches_the_account_line() -> None:
     QApplication.instance() or QApplication([])
     window = ResultWindow()
 
     assert window.credit_label.text() == "Developed by L. Mingkai"
-    assert "credit_fg" in LIGHT_PALETTE and "credit_fg" in DARK_PALETTE
-    assert LIGHT_PALETTE["credit_fg"] != DARK_PALETTE["credit_fg"]
     for theme in ("light", "dark"):
         window.set_theme(theme)
-        assert f"color: {THEMES[theme]['credit_fg']}" in window.styleSheet()
+        # deliberately the same violet as "Signed in as ...", from one token
+        assert f"color: {THEMES[theme]['account_fg']}" in window.styleSheet()
+    assert window.credit_label.fontInfo().pixelSize() == (
+        window.account_label.fontInfo().pixelSize()
+    )
+    assert window.credit_label.fontInfo().weight() == (
+        window.account_label.fontInfo().weight()
+    )
+    assert window.credit_label.fontInfo().family() == (
+        window.account_label.fontInfo().family()
+    )
     window.close()
 
 
