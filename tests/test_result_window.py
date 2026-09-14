@@ -283,3 +283,52 @@ def test_pair_font_size_is_clamped_to_a_readable_range() -> None:
     assert clamp_pair_font_size(2) == MIN_PAIR_FONT_PX
     assert clamp_pair_font_size(999) == MAX_PAIR_FONT_PX
     assert clamp_pair_font_size(18) == 18
+
+
+def test_both_palettes_cover_every_placeholder_in_the_sheet() -> None:
+    from lamarck_translator.result_window import (
+        DARK_PALETTE, LIGHT_PALETTE, WINDOW_STYLE_TEMPLATE, build_window_style,
+    )
+    import re
+
+    placeholders = set(re.findall(r"\$(\w+)", WINDOW_STYLE_TEMPLATE.template))
+    assert placeholders <= set(LIGHT_PALETTE), "light palette is missing a token"
+    assert set(LIGHT_PALETTE) == set(DARK_PALETTE), "the palettes have drifted apart"
+    for theme in ("light", "dark"):
+        sheet = build_window_style(theme)
+        assert "$" not in sheet, f"{theme} left a placeholder unsubstituted"
+    assert build_window_style("light") != build_window_style("dark")
+
+
+def test_toggling_repaints_and_flips_the_button_icon() -> None:
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+
+    window.set_theme("light")
+    assert window.painted_theme() == "light"
+    assert window.title_bar.theme_button._dark is False
+    light_sheet = window.styleSheet()
+
+    window.toggle_theme()
+    assert window.theme() == "dark", "the button pins an explicit theme"
+    assert window.painted_theme() == "dark"
+    assert window.title_bar.theme_button._dark is True
+    assert window.styleSheet() != light_sheet
+
+    window.toggle_theme()
+    assert window.painted_theme() == "light"
+    window.close()
+
+
+def test_unknown_theme_names_fall_back_to_following_the_system() -> None:
+    from lamarck_translator.result_window import resolve_theme
+
+    QApplication.instance() or QApplication([])
+    window = ResultWindow()
+
+    window.set_theme("solarized")
+
+    assert window.theme() == "system"
+    assert window.painted_theme() == resolve_theme("system")
+    assert window.painted_theme() in ("light", "dark")
+    window.close()

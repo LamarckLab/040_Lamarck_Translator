@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import sys
+from string import Template
 from ctypes import wintypes
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
@@ -14,6 +16,7 @@ from PySide6.QtGui import (
     QKeyEvent,
     QMouseEvent,
     QPainter,
+    QPainterPath,
     QPalette,
     QPen,
     QTextOption,
@@ -95,29 +98,145 @@ def format_backend_info(model: str, effort: str) -> str:
     return "  ·  ".join(parts)
 
 
-WINDOW_STYLE = """
+LIGHT_PALETTE = {
+    "accent": "#315EFB",
+    "accent_text": "#315EFB",
+    "accent_hover": "#274FD8",
+    "accent_pressed": "#1F43BE",
+    "account_fg": "#5B47A8",
+    "bg": "#F4F7FB",
+    "body_fg": "#202A3D",
+    "btn_bg": "#FFFFFF",
+    "btn_border": "#D7DFEB",
+    "btn_disabled_bg": "#E9EDF4",
+    "btn_fg": "#354159",
+    "btn_hover_bg": "#F3F6FB",
+    "btn_hover_border": "#B9C5D7",
+    "card": "#FFFFFF",
+    "card_border": "#E3E9F2",
+    "close_hover_bg": "#FCE8EA",
+    "close_hover_fg": "#C43242",
+    "close_pressed_bg": "#F7D5D9",
+    "close_pressed_fg": "#A92332",
+    "disabled_fg": "#A2ABBA",
+    "ghost_fg": "#6A768C",
+    "ghost_hover_fg": "#29364F",
+    "hint_fg": "#929CAF",
+    "muted": "#78849A",
+    "on_accent": "#FFFFFF",
+    "pair_border": "#E5EAF2",
+    "pair_hover_bg": "#F2EEFF",
+    "pair_hover_border": "#AF9BFA",
+    "pair_hover_source": "#40269A",
+    "pair_hover_translation": "#5A3FB0",
+    "pill_err_bg": "#FFF0F0",
+    "pill_err_border": "#FFD7D7",
+    "pill_err_fg": "#C83C4A",
+    "pill_ok_bg": "#EAF8F1",
+    "pill_ok_border": "#CDEDDD",
+    "pill_ok_fg": "#17855B",
+    "pill_ready_bg": "#EEF3FF",
+    "pill_ready_border": "#DCE6FF",
+    "pressed_fill": "#DDE4EF",
+    "raised": "#FBFCFE",
+    "scroll_handle": "#CAD2E0",
+    "scroll_handle_hover": "#9D8FE0",
+    "section_fg": "#4B5870",
+    "selection_bg": "#C9D7FF",
+    "subtle_hover": "#E9EEF6",
+    "text": "#172033",
+    "text_strong": "#25304A",
+    "title_fg": "#16213A",
+    "titlebar_border": "#E4E9F1",
+    "titlebar_fg": "#5D687C",
+    "translation_fg": "#536078",
+    "wbtn_fg": "#6C7689",
+    "window_border": "#DDE4EF",
+}
+
+DARK_PALETTE = {
+    "accent": "#3D6AF0",
+    "accent_text": "#86A8FF",
+    "accent_hover": "#3E6BF0",
+    "accent_pressed": "#345CD8",
+    "account_fg": "#B49CFF",
+    "bg": "#141922",
+    "body_fg": "#D6DEEA",
+    "btn_bg": "#232A36",
+    "btn_border": "#38414F",
+    "btn_disabled_bg": "#1E242E",
+    "btn_fg": "#D6DEEA",
+    "btn_hover_bg": "#2A323F",
+    "btn_hover_border": "#4A5566",
+    "card": "#1C222D",
+    "card_border": "#2C3542",
+    "close_hover_bg": "#3A2228",
+    "close_hover_fg": "#FF8A96",
+    "close_pressed_bg": "#4A2A31",
+    "close_pressed_fg": "#FFA3AC",
+    "disabled_fg": "#5A6473",
+    "ghost_fg": "#8B96A9",
+    "ghost_hover_fg": "#DDE4EF",
+    "hint_fg": "#6E7889",
+    "muted": "#8B96A9",
+    "on_accent": "#FFFFFF",
+    "pair_border": "#333D4C",
+    "pair_hover_bg": "#272040",
+    "pair_hover_border": "#7C63DE",
+    "pair_hover_source": "#CDBCFF",
+    "pair_hover_translation": "#B3A2F0",
+    "pill_err_bg": "#32181C",
+    "pill_err_border": "#50252B",
+    "pill_err_fg": "#FF7E8B",
+    "pill_ok_bg": "#14291F",
+    "pill_ok_border": "#22432F",
+    "pill_ok_fg": "#52C08C",
+    "pill_ready_bg": "#1D2740",
+    "pill_ready_border": "#2E3C61",
+    "pressed_fill": "#313B4A",
+    "raised": "#212734",
+    "scroll_handle": "#39424F",
+    "scroll_handle_hover": "#7C63DE",
+    "section_fg": "#A6B1C3",
+    "selection_bg": "#2F4479",
+    "subtle_hover": "#272F3C",
+    "text": "#E4EAF3",
+    "text_strong": "#E9EEF6",
+    "title_fg": "#F0F4FA",
+    "titlebar_border": "#262E3A",
+    "titlebar_fg": "#96A1B3",
+    "translation_fg": "#A9B5C7",
+    "wbtn_fg": "#8C97A8",
+    "window_border": "#2B3340",
+}
+
+THEMES = {"light": LIGHT_PALETTE, "dark": DARK_PALETTE}
+
+
+WINDOW_STYLE_TEMPLATE = Template("""
 QWidget#resultWindow {
-    background: #F4F7FB;
-    color: #172033;
+    background: $bg;
+    color: $text;
     font-family: "Microsoft YaHei UI", "Segoe UI";
-    border: 1px solid #DDE4EF;
+    border: 1px solid $window_border;
 }
 QFrame#titleBar {
-    background: #FBFCFE;
+    background: $raised;
     border: none;
-    border-bottom: 1px solid #E4E9F1;
+    border-bottom: 1px solid $titlebar_border;
 }
 QLabel#titleBarIcon {
     background: transparent;
     border: none;
 }
 QLabel#windowTitleLabel {
-    color: #5D687C;
+    color: $titlebar_fg;
     background: transparent;
     font-size: 11px;
     font-weight: 600;
 }
 QPushButton#windowCloseButton,
+QPushButton#windowThemeButton,
 QPushButton#windowMinimizeButton,
 QPushButton#windowMaximizeButton {
     min-width: 30px;
@@ -128,34 +247,36 @@ QPushButton#windowMaximizeButton {
     border: none;
     border-radius: 7px;
     background: transparent;
-    color: #6C7689;
+    color: $wbtn_fg;
     font-family: "Segoe UI Symbol", "Segoe UI";
     font-size: 17px;
     font-weight: 400;
 }
+QPushButton#windowThemeButton:hover,
 QPushButton#windowMinimizeButton:hover, QPushButton#windowMaximizeButton:hover {
-    background: #E9EEF6;
-    color: #25304A;
+    background: $subtle_hover;
+    color: $text_strong;
 }
+QPushButton#windowThemeButton:pressed,
 QPushButton#windowMinimizeButton:pressed, QPushButton#windowMaximizeButton:pressed {
-    background: #DDE4EF;
-    color: #172033;
+    background: $pressed_fill;
+    color: $text;
 }
 QPushButton#windowCloseButton:hover {
-    background: #FCE8EA;
-    color: #C43242;
+    background: $close_hover_bg;
+    color: $close_hover_fg;
 }
 QPushButton#windowCloseButton:pressed {
-    background: #F7D5D9;
-    color: #A92332;
+    background: $close_pressed_bg;
+    color: $close_pressed_fg;
 }
 QWidget#windowBody {
-    background: #F4F7FB;
+    background: $bg;
     border: none;
 }
 QFrame#headerCard, QFrame#contentCard {
-    background: #FFFFFF;
-    border: 1px solid #E3E9F2;
+    background: $card;
+    border: 1px solid $card_border;
     border-radius: 14px;
 }
 QLabel#brandMark {
@@ -163,16 +284,16 @@ QLabel#brandMark {
     border: none;
 }
 QLabel#titleLabel {
-    color: #16213A;
+    color: $title_fg;
     font-size: 20px;
     font-weight: 700;
 }
 QLabel#subtitleLabel {
-    color: #78849A;
+    color: $muted;
     font-size: 11px;
 }
 QLabel#accountLabel {
-    color: #5B47A8;
+    color: $account_fg;
     font-size: 11px;
     font-weight: 600;
 }
@@ -181,39 +302,39 @@ QFrame#statusPill {
     padding: 0 10px;
 }
 QFrame#statusPill[state="ready"], QFrame#statusPill[state="loading"] {
-    background: #EEF3FF;
-    border: 1px solid #DCE6FF;
+    background: $pill_ready_bg;
+    border: 1px solid $pill_ready_border;
 }
 QFrame#statusPill[state="success"] {
-    background: #EAF8F1;
-    border: 1px solid #CDEDDD;
+    background: $pill_ok_bg;
+    border: 1px solid $pill_ok_border;
 }
 QFrame#statusPill[state="error"] {
-    background: #FFF0F0;
-    border: 1px solid #FFD7D7;
+    background: $pill_err_bg;
+    border: 1px solid $pill_err_border;
 }
 QLabel#statusDot, QLabel#statusText {
-    color: #315EFB;
+    color: $accent_text;
     font-size: 12px;
     font-weight: 600;
 }
 QFrame#statusPill[state="success"] QLabel {
-    color: #17855B;
+    color: $pill_ok_fg;
 }
 QFrame#statusPill[state="error"] QLabel {
-    color: #C83C4A;
+    color: $pill_err_fg;
 }
 QLabel#sectionLabel {
-    color: #4B5870;
+    color: $section_fg;
     font-size: 12px;
     font-weight: 600;
 }
 QTextBrowser#messageOutput {
     background: transparent;
     border: none;
-    color: #202A3D;
-    selection-background-color: #C9D7FF;
-    selection-color: #172033;
+    color: $body_fg;
+    selection-background-color: $selection_bg;
+    selection-color: $text;
     font-size: 16px;
 }
 QStackedWidget#contentStack, QScrollArea#pairsScroll, QWidget#pairsContainer {
@@ -228,11 +349,11 @@ QScrollBar:vertical {
 }
 QScrollBar::handle:vertical {
     min-height: 34px;
-    background: #CAD2E0;
+    background: $scroll_handle;
     border-radius: 5px;
 }
 QScrollBar::handle:vertical:hover {
-    background: #9D8FE0;
+    background: $scroll_handle_hover;
 }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     width: 0;
@@ -244,82 +365,101 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
     background: transparent;
 }
 QFrame#translationPairCard {
-    background: #FBFCFE;
-    border: 1px solid #E5EAF2;
+    background: $raised;
+    border: 1px solid $pair_border;
     border-radius: 11px;
 }
 QFrame#translationPairCard[hovered="true"] {
-    background: #F2EEFF;
-    border-color: #AF9BFA;
+    background: $pair_hover_bg;
+    border-color: $pair_hover_border;
 }
 QLabel#sourceText {
-    color: #25304A;
+    color: $text_strong;
     font-family: "Segoe UI", "Arial";
     font-size: 15px;
     font-weight: 600;
     background: transparent;
 }
 QLabel#translationText {
-    color: #536078;
+    color: $translation_fg;
     font-family: "Microsoft YaHei UI", "Segoe UI";
     font-size: 15px;
     background: transparent;
 }
 QFrame#translationPairCard[hovered="true"] QLabel#sourceText {
-    color: #40269A;
+    color: $pair_hover_source;
 }
 QFrame#translationPairCard[hovered="true"] QLabel#translationText {
-    color: #5A3FB0;
+    color: $pair_hover_translation;
 }
 QPushButton {
     min-height: 36px;
     padding: 0 17px;
     border-radius: 8px;
-    border: 1px solid #D7DFEB;
-    background: #FFFFFF;
-    color: #354159;
+    border: 1px solid $btn_border;
+    background: $btn_bg;
+    color: $btn_fg;
     font-size: 13px;
     font-weight: 600;
 }
 QPushButton:hover {
-    background: #F3F6FB;
-    border-color: #B9C5D7;
+    background: $btn_hover_bg;
+    border-color: $btn_hover_border;
 }
 QPushButton:pressed {
-    background: #E9EEF6;
+    background: $subtle_hover;
 }
 QPushButton[variant="primary"] {
-    color: #FFFFFF;
-    background: #315EFB;
-    border-color: #315EFB;
+    color: $on_accent;
+    background: $accent;
+    border-color: $accent;
 }
 QPushButton[variant="primary"]:hover {
-    background: #274FD8;
-    border-color: #274FD8;
+    background: $accent_hover;
+    border-color: $accent_hover;
 }
 QPushButton[variant="primary"]:pressed {
-    background: #1F43BE;
-    border-color: #1F43BE;
+    background: $accent_pressed;
+    border-color: $accent_pressed;
 }
 QPushButton[variant="ghost"] {
     background: transparent;
     border-color: transparent;
-    color: #6A768C;
+    color: $ghost_fg;
 }
 QPushButton[variant="ghost"]:hover {
-    background: #E9EEF6;
-    color: #29364F;
+    background: $subtle_hover;
+    color: $ghost_hover_fg;
 }
 QPushButton:disabled {
-    background: #E9EDF4;
-    border-color: #E9EDF4;
-    color: #A2ABBA;
+    background: $btn_disabled_bg;
+    border-color: $btn_disabled_bg;
+    color: $disabled_fg;
 }
 QLabel#shortcutHint {
-    color: #929CAF;
+    color: $hint_fg;
     font-size: 11px;
 }
-"""
+""")
+
+
+def resolve_theme(theme: str) -> str:
+    """Map a configured theme onto the one actually painted.
+
+    "system" follows the Windows setting and keeps following it, so the
+    window changes with the OS; "light" and "dark" pin it.
+    """
+    if theme in THEMES:
+        return theme
+    hints = QGuiApplication.styleHints()
+    scheme = hints.colorScheme() if hints is not None else None
+    return "dark" if scheme == Qt.ColorScheme.Dark else "light"
+
+
+def build_window_style(theme: str) -> str:
+    """One sheet serves both themes; only the palette put into it changes."""
+    return WINDOW_STYLE_TEMPLATE.substitute(THEMES.get(theme, LIGHT_PALETTE))
+
 
 
 class CloseButton(QPushButton):
@@ -415,6 +555,56 @@ class MaximizeRestoreButton(QPushButton):
             )
 
 
+class ThemeButton(QPushButton):
+    """Shows the theme it switches TO: a moon in light, a sun in dark."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("windowThemeButton")
+        self._dark = False
+        self.sync_state()
+
+    def set_dark(self, dark: bool) -> None:
+        self._dark = dark
+        self.sync_state()
+
+    def sync_state(self) -> None:
+        target = "light" if self._dark else "dark"
+        self.setToolTip(f"Switch to {target} theme")
+        self.setAccessibleName(f"Switch to {target} theme")
+        self.update()
+
+    def paintEvent(self, event: QEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        colour = self.palette().color(QPalette.ColorRole.ButtonText)
+        centre = QPointF(self.width() / 2, self.height() / 2)
+        if self._dark:
+            # sun: filled core plus eight rays
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(colour)
+            painter.drawEllipse(centre, 3.2, 3.2)
+            pen = QPen(colour, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            for index in range(8):
+                angle = math.radians(index * 45)
+                dx, dy = math.cos(angle), math.sin(angle)
+                painter.drawLine(
+                    QPointF(centre.x() + dx * 5.2, centre.y() + dy * 5.2),
+                    QPointF(centre.x() + dx * 7.0, centre.y() + dy * 7.0),
+                )
+        else:
+            # moon: a disc with a second disc punched out of it
+            path = QPainterPath()
+            path.addEllipse(centre, 6.2, 6.2)
+            bite = QPainterPath()
+            bite.addEllipse(QPointF(centre.x() + 3.4, centre.y() - 2.8), 5.6, 5.6)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(colour)
+            painter.drawPath(path.subtracted(bite))
+
+
 class WindowTitleBar(QFrame):
     def __init__(self, window: QWidget) -> None:
         super().__init__(window)
@@ -434,6 +624,8 @@ class WindowTitleBar(QFrame):
         title = QLabel("Lamarck Translator")
         title.setObjectName("windowTitleLabel")
 
+        self.theme_button = ThemeButton()
+        self.theme_button.clicked.connect(window.toggle_theme)
         self.minimize_button = MinimizeButton()
         self.minimize_button.clicked.connect(window.showMinimized)
         self.maximize_button = MaximizeRestoreButton(window)
@@ -444,6 +636,7 @@ class WindowTitleBar(QFrame):
         layout.addWidget(self.icon_label)
         layout.addWidget(title)
         layout.addStretch(1)
+        layout.addWidget(self.theme_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.minimize_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.maximize_button, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(self.close_button, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -549,6 +742,7 @@ def clamp_pair_font_size(font_px: int) -> int:
 class ResultWindow(QWidget):
     retry_requested = Signal()
     pair_font_size_changed = Signal(int)
+    theme_changed = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -563,11 +757,17 @@ class ResultWindow(QWidget):
         )
         self.setMinimumSize(600, 430)
         self.resize(760, 550)
-        self.setStyleSheet(WINDOW_STYLE)
+        self._theme = "system"
+        self._painted_theme = resolve_theme("system")
+        self.setStyleSheet(build_window_style(self._painted_theme))
         self._copy_text = ""
         self._pair_font_px = DEFAULT_PAIR_FONT_PX
         self._build_ui()
+        self.title_bar.theme_button.set_dark(self._painted_theme == "dark")
         self._set_status("Ready", "ready")
+        hints = QGuiApplication.styleHints()
+        if hints is not None:
+            hints.colorSchemeChanged.connect(self._system_theme_changed)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -708,6 +908,42 @@ class ResultWindow(QWidget):
 
     def set_account_identity(self, text: str) -> None:
         self.account_label.setText(text or "Codex account unavailable")
+
+    def theme(self) -> str:
+        return self._theme
+
+    def painted_theme(self) -> str:
+        return self._painted_theme
+
+    def set_theme(self, theme: str, announce: bool = False) -> None:
+        if theme not in THEMES and theme != "system":
+            theme = "system"
+        self._theme = theme
+        self._repaint_theme()
+        if announce:
+            self.theme_changed.emit(theme)
+
+    def toggle_theme(self) -> None:
+        """The button always pins an explicit theme, never back to system."""
+        self.set_theme("light" if self._painted_theme == "dark" else "dark", announce=True)
+
+    def _system_theme_changed(self) -> None:
+        if self._theme == "system":
+            self._repaint_theme()
+
+    def _repaint_theme(self) -> None:
+        painted = resolve_theme(self._theme)
+        if painted == self._painted_theme and self.styleSheet():
+            return
+        self._painted_theme = painted
+        self.setStyleSheet(build_window_style(painted))
+        self.title_bar.theme_button.set_dark(painted == "dark")
+        # The status pill paints from a dynamic property, so it needs a
+        # re-polish to pick the new palette up.
+        for widget in (self.status_pill, self.status_dot, self.status):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        self.update()
 
     def set_backend_info(self, model: str, effort: str) -> None:
         self.subtitle_label.setText(format_backend_info(model, effort))

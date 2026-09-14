@@ -43,6 +43,7 @@ class TranslatorApp:
         self.result_window.set_brand_icon(app_icon)
         self.result_window.set_backend_info(config.model, config.reasoning_effort)
         self.result_window.set_pair_font_size(config.pair_font_size)
+        self.result_window.set_theme(config.theme)
         self._refresh_account_identity()
         self.selection_reader = SelectionReader(
             wait_ms=config.clipboard_wait_ms,
@@ -62,6 +63,7 @@ class TranslatorApp:
         self.screenshot_overlay.captured.connect(self._translate_image)
         self.result_window.retry_requested.connect(self._retry)
         self.result_window.pair_font_size_changed.connect(self._remember_pair_font_size)
+        self.result_window.theme_changed.connect(self._remember_theme)
         self.hotkeys.activated.connect(self._on_hotkey)
         qt_app.installNativeEventFilter(self.hotkeys)
 
@@ -241,6 +243,15 @@ class TranslatorApp:
             save_config(self.config)
         except OSError:
             pass  # zooming must not interrupt reading over a transient write error
+
+    def _remember_theme(self, theme: str) -> None:
+        if theme == self.config.theme:
+            return
+        self.config.theme = theme
+        try:
+            save_config(self.config)
+        except OSError:
+            pass  # a transient write error must not undo the switch on screen
 
     def show_config_path(self) -> None:
         self.result_window.show_result(

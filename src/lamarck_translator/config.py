@@ -24,6 +24,7 @@ class AppConfig:
     clipboard_wait_ms: int = 220
     restore_clipboard: bool = True
     pair_font_size: int = 15
+    theme: str = "system"
     prompt: str = DEFAULT_PROMPT
 
 
