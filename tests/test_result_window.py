@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtWidgets import QApplication
 
 from lamarck_translator.result_window import (
@@ -127,7 +127,7 @@ def test_bilingual_result_builds_linked_pair_cards() -> None:
         "First sentence.\n第一句。\n\nSecond sentence.\n第二句。"
     )
 
-    cards[0]._set_hovered(True)
+    cards[0].set_hovered(True)
     assert cards[0].property("hovered") is True
 
     window.close()
@@ -347,4 +347,81 @@ def test_the_author_credit_is_shown_and_themed() -> None:
     for theme in ("light", "dark"):
         window.set_theme(theme)
         assert f"color: {THEMES[theme]['credit_fg']}" in window.styleSheet()
+    window.close()
+
+
+def _six_card_window(height: int = 1000):
+    """A result window showing six pair cards, with a steerable cursor."""
+    import lamarck_translator.result_window as rw
+
+    app = QApplication.instance() or QApplication([])
+
+    class FakeCursor:
+        point = QPoint(0, 0)
+
+        @classmethod
+        def pos(cls):
+            return cls.point
+
+    rw.QCursor = FakeCursor
+    window = ResultWindow()
+    window._show_near_cursor = lambda: None
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    window.resize(820, height)
+    window.show()
+    pairs = ",".join(
+        f'{{"source":"Sentence {i}.","translation":"第 {i} 句。"}}' for i in range(1, 7)
+    )
+    window.show_bilingual_result(None, '{"pairs":[' + pairs + ']}')
+    for _ in range(6):
+        app.processEvents()
+    return app, window, window.findChildren(TranslationPairCard), FakeCursor
+
+
+def _point_at(app, card, cursor):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QEnterEvent
+
+    cursor.point = card.mapToGlobal(QPoint(card.width() // 2, card.height() // 2))
+    local = QPointF(card.width() / 2, card.height() / 2)
+    app.sendEvent(card, QEnterEvent(local, local, cursor.point))
+    for _ in range(3):
+        app.processEvents()
+
+
+def test_only_the_card_under_the_pointer_is_highlighted() -> None:
+    # Moving straight from one card into its neighbour delivers an enter to the
+    # second without a leave to the first, which used to leave both lit.
+    app, window, cards, cursor = _six_card_window()
+
+    lit = lambda: [i for i, c in enumerate(cards) if c.property("hovered")]
+    _point_at(app, cards[0], cursor)
+    assert lit() == [0]
+    _point_at(app, cards[2], cursor)
+    assert lit() == [2], "the previous card must go out"
+    _point_at(app, cards[4], cursor)
+    assert lit() == [4]
+
+    cursor.point = QPoint(-5000, -5000)
+    window._sync_pair_hover()
+    assert lit() == [], "leaving the list clears every card"
+    window.close()
+
+
+def test_scrolling_under_a_still_pointer_moves_the_highlight() -> None:
+    # The pointer never moves, so no leave arrives; the cards move instead.
+    app, window, cards, cursor = _six_card_window(height=420)
+
+    lit = lambda: [i for i, c in enumerate(cards) if c.property("hovered")]
+    _point_at(app, cards[0], cursor)
+    assert lit() == [0]
+
+    bar = window.pairs_scroll.verticalScrollBar()
+    assert bar.maximum() > 0, "the list has to be scrollable for this to mean anything"
+    bar.setValue(bar.maximum())
+    for _ in range(4):
+        app.processEvents()
+
+    assert lit() != [0], "the card scrolled away and must not stay lit"
+    assert len(lit()) <= 1
     window.close()

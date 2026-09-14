@@ -113,7 +113,7 @@ LIGHT_PALETTE = {
     "btn_hover_bg": "#F3F6FB",
     "btn_hover_border": "#B9C5D7",
     "card": "#FFFFFF",
-    "credit_fg": "#7C63DE",
+    "credit_fg": "#8E86AE",
     "card_border": "#E3E9F2",
     "close_hover_bg": "#FCE8EA",
     "close_hover_fg": "#C43242",
@@ -170,7 +170,7 @@ DARK_PALETTE = {
     "btn_hover_bg": "#2A323F",
     "btn_hover_border": "#4A5566",
     "card": "#1C222D",
-    "credit_fg": "#A78BFA",
+    "credit_fg": "#7E77A0",
     "card_border": "#2C3542",
     "close_hover_bg": "#3A2228",
     "close_hover_fg": "#FF8A96",
@@ -303,8 +303,8 @@ QLabel#creditLabel {
     color: $credit_fg;
     background: transparent;
     font-family: "Segoe UI", "Microsoft YaHei UI";
-    font-size: 11px;
-    font-weight: 600;
+    font-size: 10px;
+    font-weight: 500;
 }
 QFrame#statusPill {
     border-radius: 12px;
@@ -714,7 +714,10 @@ class TranslationPairCard(QFrame):
 
         for widget in (self, self.source_label, self.translation_label):
             widget.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-            widget.installEventFilter(self)
+
+    def hover_targets(self) -> tuple[QWidget, ...]:
+        """Widgets whose enter and leave events mean "the pointer is on me"."""
+        return (self, self.source_label, self.translation_label)
 
     def set_font_size(self, font_px: int) -> None:
         # A per-widget sheet outranks the window sheet for font-size while
@@ -723,18 +726,7 @@ class TranslationPairCard(QFrame):
         for label in (self.source_label, self.translation_label):
             label.setStyleSheet(f"font-size: {font_px}px;")
 
-    def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
-        if event.type() == QEvent.Type.Enter:
-            self._set_hovered(True)
-        elif event.type() == QEvent.Type.Leave:
-            QTimer.singleShot(0, self._sync_hover_state)
-        return super().eventFilter(watched, event)
-
-    def _sync_hover_state(self) -> None:
-        local_position = self.mapFromGlobal(QCursor.pos())
-        self._set_hovered(self.rect().contains(local_position))
-
-    def _set_hovered(self, hovered: bool) -> None:
+    def set_hovered(self, hovered: bool) -> None:
         if self.property("hovered") == hovered:
             return
         self.setProperty("hovered", hovered)
@@ -833,24 +825,10 @@ class ResultWindow(QWidget):
         status_layout.addWidget(self.status_dot)
         status_layout.addWidget(self.status)
 
-        self.credit_label = QLabel("Developed by L. Mingkai")
-        self.credit_label.setObjectName("creditLabel")
-        self.credit_label.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        self.credit_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        status_stack = QVBoxLayout()
-        status_stack.setContentsMargins(0, 0, 0, 0)
-        status_stack.setSpacing(7)
-        status_stack.addWidget(self.status_pill, 0, Qt.AlignmentFlag.AlignRight)
-        status_stack.addWidget(self.credit_label, 0, Qt.AlignmentFlag.AlignRight)
-
         header_layout.addWidget(self.brand_mark)
         header_layout.addLayout(title_stack)
         header_layout.addStretch(1)
-        header_layout.addLayout(status_stack)
+        header_layout.addWidget(self.status_pill)
         body_layout.addWidget(header)
 
         card = QFrame()
@@ -885,6 +863,11 @@ class ResultWindow(QWidget):
         self.pairs_scroll.setWidget(self.pairs_container)
         # Ctrl+wheel resizes the sentence text; a plain wheel must still scroll.
         self.pairs_scroll.viewport().installEventFilter(self)
+        # Scrolling slides cards out from under a pointer that never moved, so
+        # no leave event is sent and the highlight would stick.
+        self.pairs_scroll.verticalScrollBar().valueChanged.connect(
+            self._schedule_pair_hover_sync
+        )
 
         self.content_stack.addWidget(self.message_output)
         self.content_stack.addWidget(self.pairs_scroll)
@@ -916,7 +899,18 @@ class ResultWindow(QWidget):
         self.close_button.setToolTip("Hide this window")
         self.close_button.clicked.connect(self.hide)
 
-        footer.addWidget(hint)
+        self.credit_label = QLabel("Developed by L. Mingkai")
+        self.credit_label.setObjectName("creditLabel")
+        self.credit_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        hint_stack = QVBoxLayout()
+        hint_stack.setContentsMargins(0, 0, 0, 0)
+        hint_stack.setSpacing(3)
+        hint_stack.addWidget(hint)
+        hint_stack.addWidget(self.credit_label)
+
+        footer.addLayout(hint_stack)
         footer.addStretch(1)
         footer.addWidget(self.retry_button)
         footer.addWidget(self.copy_button)
@@ -983,10 +977,51 @@ class ResultWindow(QWidget):
             card.set_font_size(font_px)
         # The cards keep their old height until the layout re-measures them.
         self.pairs_container.adjustSize()
+        self._schedule_pair_hover_sync()
         if announce:
             self.pair_font_size_changed.emit(font_px)
 
+    def _schedule_pair_hover_sync(self) -> None:
+        # Deferred: during a leave or a scroll the layout has not settled yet,
+        # so the cursor test would read stale geometry.
+        QTimer.singleShot(0, self._sync_pair_hover)
+
+    def _sync_pair_hover(self) -> None:
+        """Light the one card under the pointer, and only that one.
+
+        Each card used to track itself from its own enter and leave events.
+        Enter always arrived; leave did not, whenever the pointer crossed
+        straight into a neighbour, or the cards moved rather than the pointer.
+        Recomputing every card from the real cursor position cannot leave a
+        stale highlight behind, whatever route the pointer took.
+        """
+        # The sync is deferred, so it can land before the UI is built or after
+        # the window has been torn down; a scrollbar signal reaches it in both.
+        scroll = getattr(self, "pairs_scroll", None)
+        if scroll is None:
+            return
+        try:
+            cards = self.pairs_container.findChildren(TranslationPairCard)
+        except RuntimeError:
+            return  # the C++ side is already gone
+        if not cards:
+            return
+        viewport = scroll.viewport()
+        cursor = QCursor.pos()
+        # A card scrolled half under the card edge is still geometrically under
+        # the cursor, so the viewport has to agree the pointer is on the list.
+        on_list = (
+            scroll.isVisible()
+            and viewport.rect().contains(viewport.mapFromGlobal(cursor))
+        )
+        for card in cards:
+            card.set_hovered(
+                on_list and card.rect().contains(card.mapFromGlobal(cursor))
+            )
+
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
+        if event.type() in (QEvent.Type.Enter, QEvent.Type.Leave):
+            self._schedule_pair_hover_sync()
         if (
             watched is self.pairs_scroll.viewport()
             and event.type() == QEvent.Type.Wheel
@@ -1068,7 +1103,10 @@ class ResultWindow(QWidget):
             return
         self._clear_pairs()
         for pair in pairs:
-            self.pairs_layout.addWidget(TranslationPairCard(pair, self._pair_font_px))
+            card = TranslationPairCard(pair, self._pair_font_px)
+            for target in card.hover_targets():
+                target.installEventFilter(self)
+            self.pairs_layout.addWidget(card)
         self.pairs_layout.addStretch(1)
 
         self._copy_text = format_translation_pairs(pairs)
