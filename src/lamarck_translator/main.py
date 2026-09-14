@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from .backend import CodexCLIBackend
 from .clipboard import SelectionReader
-from .config import AppConfig, config_path, load_config
+from .config import AppConfig, config_path, load_config, save_config
 from .hotkeys import HotkeyManager
 from .identity import load_codex_identity
 from .prompts import build_image_prompt, build_text_prompt
@@ -42,6 +42,7 @@ class TranslatorApp:
         self.result_window.setWindowIcon(app_icon)
         self.result_window.set_brand_icon(app_icon)
         self.result_window.set_backend_info(config.model, config.reasoning_effort)
+        self.result_window.set_pair_font_size(config.pair_font_size)
         self._refresh_account_identity()
         self.selection_reader = SelectionReader(
             wait_ms=config.clipboard_wait_ms,
@@ -60,6 +61,7 @@ class TranslatorApp:
         self.selection_reader.failed.connect(self.result_window.show_error)
         self.screenshot_overlay.captured.connect(self._translate_image)
         self.result_window.retry_requested.connect(self._retry)
+        self.result_window.pair_font_size_changed.connect(self._remember_pair_font_size)
         self.hotkeys.activated.connect(self._on_hotkey)
         qt_app.installNativeEventFilter(self.hotkeys)
 
@@ -229,6 +231,16 @@ class TranslatorApp:
 
     def _refresh_account_identity(self) -> None:
         self.result_window.set_account_identity(load_codex_identity().display_text)
+
+    def _remember_pair_font_size(self, font_px: int) -> None:
+        """Keep a Ctrl+wheel zoom across restarts."""
+        if font_px == self.config.pair_font_size:
+            return
+        self.config.pair_font_size = font_px
+        try:
+            save_config(self.config)
+        except OSError:
+            pass  # zooming must not interrupt reading over a transient write error
 
     def show_config_path(self) -> None:
         self.result_window.show_result(

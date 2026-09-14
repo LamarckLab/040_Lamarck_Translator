@@ -54,7 +54,7 @@ Three parts carry most of the weight:
 | [hotkeys.py](./src/lamarck_translator/hotkeys.py)                     | Global hotkeys via `RegisterHotKey` and `WM_HOTKEY`                     |
 | [config.py](./src/lamarck_translator/config.py)                       | Configuration file loading and saving                                   |
 | [worker.py](./src/lamarck_translator/worker.py)                       | Background translation task, temporary screenshot cleanup               |
-| [tests/](./tests/)                                                    | 25 pytest tests                                                         |
+| [tests/](./tests/)                                                    | 42 pytest tests                                                         |
 | [build.ps1](./build.ps1)                                              | PyInstaller packaging script                                            |
 
 ---
@@ -88,6 +88,7 @@ Run `codex login` once before first use. Codex CLI accepts either a ChatGPT logi
 2. Press `Alt+C`.
 3. The app presses `Ctrl+C` for you, restores your previous clipboard, and shows the full sentence-by-sentence translation.
 4. Hover over any English or Chinese sentence and its counterpart highlights with it.
+5. Hold Ctrl and turn the wheel over the sentences to resize them; the size is kept for later translations and across restarts.
 
 **Screenshot translation**
 
@@ -116,9 +117,10 @@ Created on first launch at:
 | `timeout_seconds`   | `120`                        | Give up if Codex has not answered by then                                      |
 | `clipboard_wait_ms` | `220`                        | How long to wait for the source app to fill the clipboard                      |
 | `restore_clipboard` | `true`                       | Put the original clipboard contents back after capture                         |
+| `pair_font_size`    | `15`                         | Sentence-text size in pixels; also set by Ctrl + wheel, which saves it here    |
 | `prompt`            | scientific-translation style | Translation style only; the structured-output format is appended automatically |
 
-Shortcuts take the form `Modifier+Key`, where the modifiers are `Ctrl` / `Alt` / `Shift` / `Win` and the key is a single letter or digit, or `F1`–`F24`. Restart the app after editing the file.
+Shortcuts take the form `Modifier+Key`, where the modifiers are `Ctrl` / `Alt` / `Shift` / `Win` and the key is a single letter or digit, or `F1`–`F24`. Restart the app after editing the file, except for `pair_font_size`, which the window writes itself.
 
 ## Packaging
 

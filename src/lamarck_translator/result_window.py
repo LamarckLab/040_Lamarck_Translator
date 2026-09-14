@@ -46,6 +46,10 @@ HTBOTTOMLEFT = 16
 HTBOTTOMRIGHT = 17
 RESIZE_BORDER_DIP = 7
 
+DEFAULT_PAIR_FONT_PX = 15
+MIN_PAIR_FONT_PX = 10
+MAX_PAIR_FONT_PX = 32
+
 HWND_TOPMOST = -1
 HWND_NOTOPMOST = -2
 SWP_NOSIZE = 0x0001
@@ -473,7 +477,12 @@ class WindowTitleBar(QFrame):
 
 
 class TranslationPairCard(QFrame):
-    def __init__(self, pair: TranslationPair, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        pair: TranslationPair,
+        font_px: int = DEFAULT_PAIR_FONT_PX,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("translationPairCard")
         self.setProperty("hovered", False)
@@ -499,9 +508,18 @@ class TranslationPairCard(QFrame):
         layout.addWidget(self.source_label)
         layout.addWidget(self.translation_label)
 
+        self.set_font_size(font_px)
+
         for widget in (self, self.source_label, self.translation_label):
             widget.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
             widget.installEventFilter(self)
+
+    def set_font_size(self, font_px: int) -> None:
+        # A per-widget sheet outranks the window sheet for font-size while
+        # leaving its weight, family and colour (including the hover rules)
+        # in force, so only the size moves.
+        for label in (self.source_label, self.translation_label):
+            label.setStyleSheet(f"font-size: {font_px}px;")
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.Enter:
@@ -524,8 +542,13 @@ class TranslationPairCard(QFrame):
             widget.update()
 
 
+def clamp_pair_font_size(font_px: int) -> int:
+    return max(MIN_PAIR_FONT_PX, min(MAX_PAIR_FONT_PX, int(font_px)))
+
+
 class ResultWindow(QWidget):
     retry_requested = Signal()
+    pair_font_size_changed = Signal(int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -542,6 +565,7 @@ class ResultWindow(QWidget):
         self.resize(760, 550)
         self.setStyleSheet(WINDOW_STYLE)
         self._copy_text = ""
+        self._pair_font_px = DEFAULT_PAIR_FONT_PX
         self._build_ui()
         self._set_status("Ready", "ready")
 
@@ -636,6 +660,8 @@ class ResultWindow(QWidget):
         self.pairs_layout.setContentsMargins(2, 2, 6, 2)
         self.pairs_layout.setSpacing(9)
         self.pairs_scroll.setWidget(self.pairs_container)
+        # Ctrl+wheel resizes the sentence text; a plain wheel must still scroll.
+        self.pairs_scroll.viewport().installEventFilter(self)
 
         self.content_stack.addWidget(self.message_output)
         self.content_stack.addWidget(self.pairs_scroll)
@@ -685,6 +711,35 @@ class ResultWindow(QWidget):
 
     def set_backend_info(self, model: str, effort: str) -> None:
         self.subtitle_label.setText(format_backend_info(model, effort))
+
+    def pair_font_size(self) -> int:
+        return self._pair_font_px
+
+    def set_pair_font_size(self, font_px: int, announce: bool = False) -> None:
+        font_px = clamp_pair_font_size(font_px)
+        if font_px == self._pair_font_px:
+            return
+        self._pair_font_px = font_px
+        for card in self.pairs_container.findChildren(TranslationPairCard):
+            card.set_font_size(font_px)
+        # The cards keep their old height until the layout re-measures them.
+        self.pairs_container.adjustSize()
+        if announce:
+            self.pair_font_size_changed.emit(font_px)
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:  # noqa: N802
+        if (
+            watched is self.pairs_scroll.viewport()
+            and event.type() == QEvent.Type.Wheel
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            # angleDelta is in eighths of a degree; one notch is 120.
+            notches = event.angleDelta().y() / 120
+            if notches:
+                step = 1 if notches > 0 else -1
+                self.set_pair_font_size(self._pair_font_px + step, announce=True)
+            return True
+        return super().eventFilter(watched, event)
 
     def _set_status(self, text: str, state: str) -> None:
         self.status.setText(text)
@@ -754,7 +809,7 @@ class ResultWindow(QWidget):
             return
         self._clear_pairs()
         for pair in pairs:
-            self.pairs_layout.addWidget(TranslationPairCard(pair))
+            self.pairs_layout.addWidget(TranslationPairCard(pair, self._pair_font_px))
         self.pairs_layout.addStretch(1)
 
         self._copy_text = format_translation_pairs(pairs)

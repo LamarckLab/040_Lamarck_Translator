@@ -54,7 +54,7 @@ Alt+S   框选截图  ->  按 DPI 换算裁 PNG  ->  codex exec --image  ->  句
 | [hotkeys.py](../src/lamarck_translator/hotkeys.py)                       | 用 `RegisterHotKey` + `WM_HOTKEY` 注册全局热键          |
 | [config.py](../src/lamarck_translator/config.py)                         | 配置文件的读取与写入                                    |
 | [worker.py](../src/lamarck_translator/worker.py)                         | 后台翻译任务、临时截图清理                              |
-| [tests/](../tests/)                                                      | 25 个 pytest 测试                                       |
+| [tests/](../tests/)                                                      | 42 个 pytest 测试                                       |
 | [build.ps1](../build.ps1)                                                | PyInstaller 打包脚本                                    |
 
 ---
@@ -88,6 +88,7 @@ python -m lamarck_translator
 2. 按 `Alt+C`。
 3. 程序替你按一次 `Ctrl+C`，恢复你原来的剪贴板，然后显示完整的逐句对照翻译。
 4. 把鼠标移到任意英文或中文句子上，对应的另一半会同步高亮。
+5. 按住 Ctrl 在句子上滚动滚轮可缩放字号；该字号会沿用到后续翻译，重启后依然保留。
 
 **截图翻译**
 
@@ -116,9 +117,10 @@ python -m lamarck_translator
 | `timeout_seconds`   | `120`             | 超过这个秒数 Codex 还没返回就放弃                           |
 | `clipboard_wait_ms` | `220`             | 等待源程序把内容写进剪贴板的时长                            |
 | `restore_clipboard` | `true`            | 取词结束后把原剪贴板内容还原                                |
+| `pair_font_size`    | `15`              | 句对文字字号（像素）；Ctrl+滚轮调整后会写回这里             |
 | `prompt`            | 科研翻译风格      | 只管翻译风格；结构化输出格式由程序自动追加                  |
 
-快捷键写作 `修饰键+主键`，修饰键为 `Ctrl` / `Alt` / `Shift` / `Win`，主键为单个字母或数字，或 `F1`–`F24`。改完配置需要重启程序。
+快捷键写作 `修饰键+主键`，修饰键为 `Ctrl` / `Alt` / `Shift` / `Win`，主键为单个字母或数字，或 `F1`–`F24`。改完配置需要重启程序；只有 `pair_font_size` 例外，它由窗口自己写入。
 
 ## 打包
 

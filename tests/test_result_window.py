@@ -225,3 +225,61 @@ def test_frameless_window_edges_have_standard_resize_hit_zones() -> None:
     assert resize_hit_test(100, 0, width, height, border) == HTTOP
     assert resize_hit_test(100, height - 1, width, height, border) == HTBOTTOM
     assert resize_hit_test(100, 100, width, height, border) == HTCLIENT
+
+
+def test_ctrl_wheel_resizes_the_sentence_text_and_plain_wheel_does_not() -> None:
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+
+    app = QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window._show_near_cursor = lambda: None
+    window.show_bilingual_result(
+        "Alpha. Beta.",
+        '{"pairs":[{"source":"Alpha.","translation":"甲。"},'
+        '{"source":"Beta.","translation":"乙。"}]}',
+    )
+    app.processEvents()
+    start = window.pair_font_size()
+
+    def wheel(delta: int, modifier: Qt.KeyboardModifier) -> None:
+        viewport = window.pairs_scroll.viewport()
+        event = QWheelEvent(
+            QPointF(10, 10), viewport.mapToGlobal(QPoint(10, 10)),
+            QPoint(0, 0), QPoint(0, delta),
+            Qt.MouseButton.NoButton, modifier,
+            Qt.ScrollPhase.NoScrollPhase, False,
+        )
+        app.sendEvent(viewport, event)
+        app.processEvents()
+
+    wheel(120, Qt.KeyboardModifier.ControlModifier)
+    assert window.pair_font_size() == start + 1, "ctrl + wheel up enlarges"
+    wheel(-120, Qt.KeyboardModifier.ControlModifier)
+    wheel(-120, Qt.KeyboardModifier.ControlModifier)
+    assert window.pair_font_size() == start - 1, "ctrl + wheel down shrinks"
+
+    before = window.pair_font_size()
+    wheel(120, Qt.KeyboardModifier.NoModifier)
+    assert window.pair_font_size() == before, "a plain wheel scrolls, it does not zoom"
+
+    # every card follows, and the size survives the next translation
+    cards = window.findChildren(TranslationPairCard)
+    assert all(f"font-size: {before}px" in c.source_label.styleSheet() for c in cards)
+    window.show_bilingual_result(
+        "Gamma.", '{"pairs":[{"source":"Gamma.","translation":"丙。"}]}'
+    )
+    app.processEvents()
+    fresh = window.findChildren(TranslationPairCard)
+    assert f"font-size: {before}px" in fresh[0].translation_label.styleSheet()
+    window.close()
+
+
+def test_pair_font_size_is_clamped_to_a_readable_range() -> None:
+    from lamarck_translator.result_window import (
+        MAX_PAIR_FONT_PX, MIN_PAIR_FONT_PX, clamp_pair_font_size,
+    )
+
+    assert clamp_pair_font_size(2) == MIN_PAIR_FONT_PX
+    assert clamp_pair_font_size(999) == MAX_PAIR_FONT_PX
+    assert clamp_pair_font_size(18) == 18

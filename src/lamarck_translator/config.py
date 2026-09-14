@@ -23,6 +23,7 @@ class AppConfig:
     timeout_seconds: int = 120
     clipboard_wait_ms: int = 220
     restore_clipboard: bool = True
+    pair_font_size: int = 15
     prompt: str = DEFAULT_PROMPT
 
 
