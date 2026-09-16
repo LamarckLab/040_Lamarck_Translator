@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 from .backend import CodexCLIBackend
 from .clipboard import SelectionReader
 from .config import AppConfig, config_path, load_config, save_config
-from .history import SCREENSHOT, SELECTION
+from .history import MAX_IN_FLIGHT, SCREENSHOT, SELECTION
 from .hotkeys import HotkeyManager
 from .identity import load_codex_identity
 from .prompts import build_image_prompt, build_text_prompt
@@ -57,7 +57,9 @@ class TranslatorApp:
         # is kept here until its finished signal lands.
         self._workers: dict[int, TranslationWorker] = {}
         self._status_worker: LoginStatusWorker | None = None
-        self._busy = False
+        # A status check still runs alone: it reports into the same window, and
+        # answering it while translations are in flight only confuses that.
+        self._checking_status = False
 
         self.selection_reader.captured.connect(self._translate_text)
         self.selection_reader.failed.connect(self.result_window.show_error)
@@ -130,16 +132,28 @@ class TranslatorApp:
             self.capture_screenshot()
 
     def capture_selection(self) -> None:
-        if self._busy:
-            self.tray.showMessage("Lamarck Translator", "A translation is already in progress.")
+        if not self._can_start():
             return
         self.selection_reader.capture()
 
     def capture_screenshot(self) -> None:
-        if self._busy:
-            self.tray.showMessage("Lamarck Translator", "A translation is already in progress.")
+        if not self._can_start():
             return
         self.screenshot_overlay.begin()
+
+    def _can_start(self) -> bool:
+        """Whether another translation may be sent right now."""
+        if self._checking_status:
+            self.tray.showMessage("Lamarck Translator", "Checking the Codex login first.")
+            return False
+        running = self.result_window.running_jobs()
+        if running >= MAX_IN_FLIGHT:
+            self.tray.showMessage(
+                "Lamarck Translator",
+                f"{running} translations are already running. Wait for one to finish.",
+            )
+            return False
+        return True
 
     def _translate_text(self, text: str) -> None:
         prompt = build_text_prompt(self.config.prompt, text)
@@ -158,14 +172,12 @@ class TranslatorApp:
         source_text: str | None,
     ) -> None:
         # The hotkey entry points check this too, but a screenshot selection
-        # started before a text translation can still land here mid-flight.
-        if self._busy:
+        # begun while there was room can still land here after the cap filled.
+        if not self._can_start():
             if image is not None:
                 # Nothing will run the worker that would have deleted it.
                 image.unlink(missing_ok=True)
-            self.tray.showMessage("Lamarck Translator", "A translation is already in progress.")
             return
-        self._busy = True
         self._refresh_account_identity()
         job = self.result_window.add_job(mode, prompt, label, source_text, image)
         worker = TranslationWorker(self.backend, prompt, image)
@@ -181,11 +193,10 @@ class TranslatorApp:
         self.thread_pool.start(worker)
 
     def _worker_finished(self, job_id: int) -> None:
-        self._busy = False
         self._workers.pop(job_id, None)
 
     def _retry(self) -> None:
-        if self._busy:
+        if not self._can_start():
             return
         job = self.result_window.active_job()
         if job is None:
@@ -205,10 +216,10 @@ class TranslatorApp:
         )
 
     def check_codex_status(self) -> None:
-        if self._busy:
+        if self.result_window.running_jobs():
             self.tray.showMessage("Lamarck Translator", "A translation is already in progress.")
             return
-        self._busy = True
+        self._checking_status = True
         self.result_window.show_loading("Checking Codex…")
         # A status check is not a translation, so it stays out of the history.
         worker = LoginStatusWorker(self.backend)
@@ -219,11 +230,10 @@ class TranslatorApp:
         self.thread_pool.start(worker)
 
     def _status_finished(self) -> None:
-        self._busy = False
+        self._checking_status = False
         self._status_worker = None
 
     def _status_succeeded(self, status: str) -> None:
-        self._busy = False
         identity = load_codex_identity()
         self.result_window.set_account_identity(identity.display_text)
         self.result_window.show_result(f"{status}\n{identity.display_text}")

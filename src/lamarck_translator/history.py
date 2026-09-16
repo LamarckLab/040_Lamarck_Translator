@@ -13,6 +13,11 @@ from .translation_pairs import TranslationPair
 # long as the window does.
 MAX_HISTORY = 5
 
+# How many translations may be in flight at once. Each one is a separate
+# codex process, and the history only holds MAX_HISTORY anyway, so there is
+# nothing to gain from letting them pile up without limit.
+MAX_IN_FLIGHT = 3
+
 SELECTION = "selection"
 SCREENSHOT = "screenshot"
 
@@ -110,6 +115,10 @@ class History:
         if self._active_id is not None and self.get(self._active_id) is None:
             self._active_id = None
         return job, evicted
+
+    @property
+    def running(self) -> list[TranslationJob]:
+        return [job for job in self._jobs if job.is_running]
 
     def get(self, job_id: int | None) -> TranslationJob | None:
         if job_id is None:

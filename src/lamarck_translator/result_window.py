@@ -36,7 +36,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .history import DONE, FAILED, RUNNING, SCREENSHOT, SELECTION, History, TranslationJob
+from .history import (
+    DONE,
+    FAILED,
+    MAX_IN_FLIGHT,
+    RUNNING,
+    SCREENSHOT,
+    SELECTION,
+    History,
+    TranslationJob,
+)
 from .translation_pairs import TranslationPair, format_translation_pairs, parse_translation_pairs
 
 
@@ -1163,6 +1172,9 @@ class ResultWindow(QWidget):
     # ---- translation history ------------------------------------------
     def active_job(self) -> TranslationJob | None:
         return self._history.active
+
+    def running_jobs(self) -> int:
+        return len(self._history.running)
 
     def add_job(
         self,
