@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 from .backend import CodexCLIBackend
 from .clipboard import SelectionReader
 from .config import AppConfig, config_path, load_config, save_config
+from .history import SCREENSHOT, SELECTION
 from .hotkeys import HotkeyManager
 from .identity import load_codex_identity
 from .prompts import build_image_prompt, build_text_prompt
@@ -51,11 +52,11 @@ class TranslatorApp:
         )
         self.screenshot_overlay = ScreenshotOverlay()
         self.hotkeys = HotkeyManager()
-        self._last_prompt = ""
-        self._last_image: Path | None = None
-        self._last_source_text: str | None = None
-        self._active_source_text: str | None = None
-        self._active_worker: TranslationWorker | None = None
+        # One entry per translation still in flight, keyed by job id. PySide
+        # drops a QRunnable's queued signals if nothing holds it, so the worker
+        # is kept here until its finished signal lands.
+        self._workers: dict[int, TranslationWorker] = {}
+        self._status_worker: LoginStatusWorker | None = None
         self._busy = False
 
         self.selection_reader.captured.connect(self._translate_text)
@@ -142,14 +143,15 @@ class TranslatorApp:
 
     def _translate_text(self, text: str) -> None:
         prompt = build_text_prompt(self.config.prompt, text)
-        self._start_worker(prompt, None, "Translating…", source_text=text)
+        self._start_worker(SELECTION, prompt, None, "Translating\u2026", source_text=text)
 
     def _translate_image(self, path: Path) -> None:
         prompt = build_image_prompt(self.config.prompt)
-        self._start_worker(prompt, path, "Reading image…", source_text=None)
+        self._start_worker(SCREENSHOT, prompt, path, "Reading image\u2026", source_text=None)
 
     def _start_worker(
         self,
+        mode: str,
         prompt: str,
         image: Path | None,
         label: str,
@@ -164,52 +166,42 @@ class TranslatorApp:
             self.tray.showMessage("Lamarck Translator", "A translation is already in progress.")
             return
         self._busy = True
-        self._last_prompt = prompt
-        self._last_image = image
-        self._last_source_text = source_text
-        self._active_source_text = source_text
         self._refresh_account_identity()
-        self.result_window.show_loading(label)
+        job = self.result_window.add_job(mode, prompt, label, source_text, image)
         worker = TranslationWorker(self.backend, prompt, image)
-        self._active_worker = worker
-        worker.signals.succeeded.connect(self._translation_succeeded)
-        worker.signals.failed.connect(self._translation_failed)
-        worker.signals.finished.connect(self._worker_finished)
+        self._workers[job.job_id] = worker
+        job_id = job.job_id
+        worker.signals.succeeded.connect(
+            lambda text, i=job_id: self.result_window.complete_job(i, text)
+        )
+        worker.signals.failed.connect(
+            lambda message, i=job_id: self.result_window.fail_job(i, message)
+        )
+        worker.signals.finished.connect(lambda i=job_id: self._worker_finished(i))
         self.thread_pool.start(worker)
 
-    def _translation_succeeded(self, text: str) -> None:
-        # Release the UI immediately. Keeping the worker referenced until its
-        # finished signal prevents PySide from dropping the final state update.
+    def _worker_finished(self, job_id: int) -> None:
         self._busy = False
-        # Both selection and screenshot translation use the same linked,
-        # bilingual sentence-card view. For screenshots, Codex supplies the
-        # recognized English source inside the structured response.
-        self.result_window.show_bilingual_result(self._active_source_text, text)
-
-    def _translation_failed(self, message: str) -> None:
-        self._busy = False
-        self.result_window.show_error(message)
-
-    def _worker_finished(self) -> None:
-        self._busy = False
-        self._last_image = None
-        self._active_source_text = None
-        self._active_worker = None
+        self._workers.pop(job_id, None)
 
     def _retry(self) -> None:
         if self._busy:
             return
-        if not self._last_prompt:
+        job = self.result_window.active_job()
+        if job is None:
             self.result_window.show_error("There is no translation to retry yet.")
             return
-        if "所附截图" in self._last_prompt:
-            self.result_window.show_error("The temporary screenshot has been deleted. Please capture the area again.")
+        if not job.can_retry:
+            self.result_window.show_error(
+                "The temporary screenshot has been deleted. Please capture the area again."
+            )
             return
         self._start_worker(
-            self._last_prompt,
+            job.mode,
+            job.prompt,
             None,
-            "Retrying…",
-            source_text=self._last_source_text,
+            "Retrying\u2026",
+            source_text=job.source_text,
         )
 
     def check_codex_status(self) -> None:
@@ -218,12 +210,17 @@ class TranslatorApp:
             return
         self._busy = True
         self.result_window.show_loading("Checking Codex…")
+        # A status check is not a translation, so it stays out of the history.
         worker = LoginStatusWorker(self.backend)
-        self._active_worker = worker
+        self._status_worker = worker
         worker.signals.succeeded.connect(self._status_succeeded)
-        worker.signals.failed.connect(self._translation_failed)
-        worker.signals.finished.connect(self._worker_finished)
+        worker.signals.failed.connect(self.result_window.show_error)
+        worker.signals.finished.connect(self._status_finished)
         self.thread_pool.start(worker)
+
+    def _status_finished(self) -> None:
+        self._busy = False
+        self._status_worker = None
 
     def _status_succeeded(self, status: str) -> None:
         self._busy = False

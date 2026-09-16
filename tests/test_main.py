@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from PySide6.QtWidgets import QApplication
 
+from lamarck_translator.history import SCREENSHOT
 from lamarck_translator.main import TranslatorApp
 from lamarck_translator.worker import LoginStatusWorker
 
@@ -28,7 +29,9 @@ def test_start_worker_refuses_a_second_job_and_deletes_its_screenshot(tmp_path: 
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"not really a png")
 
-    controller._start_worker("prompt", shot, "Reading image…", source_text=None)
+    controller._start_worker(
+        SCREENSHOT, "prompt", shot, "Reading image\u2026", source_text=None
+    )
 
     assert controller.started == []
     assert not shot.exists(), "the worker that deletes the temp file never runs"
@@ -41,7 +44,7 @@ def test_check_codex_status_does_not_block_the_ui_thread() -> None:
     labels = []
     controller = _controller(
         backend=SimpleNamespace(login_status=lambda: inline_calls.append(1) or "ok"),
-        result_window=SimpleNamespace(show_loading=labels.append),
+        result_window=SimpleNamespace(show_loading=labels.append, show_error=print),
     )
 
     controller.check_codex_status()

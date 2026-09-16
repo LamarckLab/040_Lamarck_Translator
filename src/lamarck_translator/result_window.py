@@ -6,6 +6,8 @@ import sys
 from string import Template
 from ctypes import wintypes
 
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
@@ -34,6 +36,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .history import DONE, FAILED, RUNNING, SCREENSHOT, SELECTION, History, TranslationJob
 from .translation_pairs import TranslationPair, format_translation_pairs, parse_translation_pairs
 
 
@@ -54,6 +57,8 @@ MIN_PAIR_FONT_PX = 10
 MAX_PAIR_FONT_PX = 32
 # Pointer slack that still counts as a click rather than a text drag.
 CLICK_SLOP_PX = 4
+# Centre of the drawn status mark inside a history tab.
+STATUS_ICON_X = 15
 
 HWND_TOPMOST = -1
 HWND_NOTOPMOST = -2
@@ -152,6 +157,10 @@ LIGHT_PALETTE = {
     "section_fg": "#4B5870",
     "selection_bg": "#C9D7FF",
     "subtle_hover": "#E9EEF6",
+    "tab_active_bg": "#FFFFFF",
+    "tab_active_fg": "#25304A",
+    "tab_bg": "#EDF1F7",
+    "tab_fg": "#6A768C",
     "text": "#172033",
     "text_strong": "#25304A",
     "title_fg": "#16213A",
@@ -214,6 +223,10 @@ DARK_PALETTE = {
     "section_fg": "#A6B1C3",
     "selection_bg": "#2F4479",
     "subtle_hover": "#272F3C",
+    "tab_active_bg": "#2B333F",
+    "tab_active_fg": "#E9EEF6",
+    "tab_bg": "#20262F",
+    "tab_fg": "#8B96A9",
     "text": "#E4EAF3",
     "text_strong": "#E9EEF6",
     "title_fg": "#F0F4FA",
@@ -343,6 +356,34 @@ QFrame#statusPill[state="success"] QLabel {
 }
 QFrame#statusPill[state="error"] QLabel {
     color: $pill_err_fg;
+}
+QWidget#historyStrip {
+    background: transparent;
+    border: none;
+}
+QPushButton#historyTab {
+    outline: none;
+    min-height: 26px;
+    max-height: 26px;
+    min-width: 86px;
+    max-width: 86px;
+    padding: 0 10px 0 28px;
+    border: 1px solid $card_border;
+    border-radius: 7px;
+    background: $tab_bg;
+    color: $tab_fg;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: left;
+}
+QPushButton#historyTab:hover {
+    background: $subtle_hover;
+    color: $tab_active_fg;
+}
+QPushButton#historyTab:checked {
+    background: $tab_active_bg;
+    border-color: $accent;
+    color: $tab_active_fg;
 }
 QLabel#sectionLabel {
     color: $section_fg;
@@ -772,6 +813,132 @@ class TranslationPairCard(QFrame):
             widget.update()
 
 
+class PairsPage(QScrollArea):
+    """One translation's cards.
+
+    Each job keeps its own page rather than the window rebuilding a single
+    list, so green read-marks and scroll position simply stay where they were
+    when you switch away and back.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("pairsScroll")
+        self.setWidgetResizable(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        container = QWidget()
+        container.setObjectName("pairsContainer")
+        self.pairs_layout = QVBoxLayout(container)
+        self.pairs_layout.setContentsMargins(2, 2, 6, 2)
+        self.pairs_layout.setSpacing(9)
+        self.setWidget(container)
+        self.container = container
+
+    def cards(self) -> list["TranslationPairCard"]:
+        return self.container.findChildren(TranslationPairCard)
+
+    def fill(self, pairs: list[TranslationPair], font_px: int, watcher: QWidget) -> None:
+        for card in self.cards():
+            card.setParent(None)
+            card.deleteLater()
+        while self.pairs_layout.count():
+            self.pairs_layout.takeAt(0)
+        for pair in pairs:
+            card = TranslationPairCard(pair, font_px)
+            for target in card.hover_targets():
+                target.installEventFilter(watcher)
+            self.pairs_layout.addWidget(card)
+        self.pairs_layout.addStretch(1)
+
+
+class HistoryTab(QPushButton):
+    """One entry in the history strip: a drawn status mark and a clock time.
+
+    The tab does not try to show the translation itself. Five tabs of elided
+    source text read as a row of ragged ellipses and still do not say what is
+    in them; the time tells them apart and the tooltip carries the text.
+    """
+
+    SPIN_MS = 60
+
+    def __init__(self, job_id: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.job_id = job_id
+        self.setObjectName("historyTab")
+        self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # A tab is a click target, not a keyboard stop. Taking focus would
+        # draw the style's dotted focus rectangle over the tab.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._status = DONE
+        self._seen = True
+        self._colors: dict[str, str] = {}
+        self._angle = 0
+        self._spin = QTimer(self)
+        self._spin.setInterval(self.SPIN_MS)
+        self._spin.timeout.connect(self._advance_spinner)
+
+    def _advance_spinner(self) -> None:
+        self._angle = (self._angle + 24) % 360
+        self.update()
+
+    def render_job(self, job: "TranslationJob", active: bool, colors: dict) -> None:
+        self._status, self._seen, self._colors = job.status, job.seen, colors
+        self.setText(job.started_label())
+        self.setChecked(active)
+        if job.is_screenshot:
+            detail = "Screenshot translation"
+        else:
+            detail = " ".join((job.source_text or "").split()) or "Selection"
+        self.setToolTip(f"{job.started_label()}  ·  {detail}")
+        # Only spin while there is something to spin for.
+        if job.is_running and not self._spin.isActive():
+            self._spin.start()
+        elif not job.is_running and self._spin.isActive():
+            self._spin.stop()
+        self.update()
+
+    def _status_colour(self) -> QColor:
+        if self._status == FAILED:
+            return QColor(self._colors.get("pill_err_fg", "#C83C4A"))
+        if self._status == RUNNING or not self._seen:
+            return QColor(self._colors.get("accent_text", "#315EFB"))
+        return QColor(self._colors.get("tab_fg", "#6A768C"))
+
+    def paintEvent(self, event: QEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        colour = self._status_colour()
+        centre = QPointF(STATUS_ICON_X, self.height() / 2)
+        pen = QPen(colour, 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap,
+                   Qt.PenJoinStyle.RoundJoin)
+
+        if self._status == RUNNING:
+            # An arc that turns: a still mark cannot say "in progress".
+            painter.setPen(QPen(colour, 1.7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            box = QRectF(centre.x() - 4.4, centre.y() - 4.4, 8.8, 8.8)
+            painter.drawArc(box, -self._angle * 16, 260 * 16)
+        elif self._status == FAILED:
+            painter.setPen(pen)
+            r = 3.4
+            painter.drawLine(QPointF(centre.x() - r, centre.y() - r),
+                             QPointF(centre.x() + r, centre.y() + r))
+            painter.drawLine(QPointF(centre.x() + r, centre.y() - r),
+                             QPointF(centre.x() - r, centre.y() + r))
+        elif not self._seen:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(colour)
+            painter.drawEllipse(centre, 3.4, 3.4)
+        else:
+            painter.setPen(pen)
+            painter.drawLine(QPointF(centre.x() - 3.9, centre.y() + 0.2),
+                             QPointF(centre.x() - 1.2, centre.y() + 2.9))
+            painter.drawLine(QPointF(centre.x() - 1.2, centre.y() + 2.9),
+                             QPointF(centre.x() + 4.0, centre.y() - 3.0))
+
+
 def clamp_pair_font_size(font_px: int) -> int:
     return max(MIN_PAIR_FONT_PX, min(MAX_PAIR_FONT_PX, int(font_px)))
 
@@ -800,6 +967,10 @@ class ResultWindow(QWidget):
         self._copy_text = ""
         self._pair_font_px = DEFAULT_PAIR_FONT_PX
         self._press_origin: QPoint | None = None
+        self._history = History()
+        self._pages: dict[int, PairsPage] = {}
+        self._tabs: dict[int, HistoryTab] = {}
+        self._active_page: PairsPage | None = None
         self._build_ui()
         self.title_bar.theme_button.set_dark(self._painted_theme == "dark")
         self._set_status("Ready", "ready")
@@ -888,26 +1059,15 @@ class ResultWindow(QWidget):
         self.message_output.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.message_output.document().setDocumentMargin(2)
 
-        self.pairs_scroll = QScrollArea()
-        self.pairs_scroll.setObjectName("pairsScroll")
-        self.pairs_scroll.setWidgetResizable(True)
-        self.pairs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.pairs_container = QWidget()
-        self.pairs_container.setObjectName("pairsContainer")
-        self.pairs_layout = QVBoxLayout(self.pairs_container)
-        self.pairs_layout.setContentsMargins(2, 2, 6, 2)
-        self.pairs_layout.setSpacing(9)
-        self.pairs_scroll.setWidget(self.pairs_container)
-        # Ctrl+wheel resizes the sentence text; a plain wheel must still scroll.
-        self.pairs_scroll.viewport().installEventFilter(self)
-        # Scrolling slides cards out from under a pointer that never moved, so
-        # no leave event is sent and the highlight would stick.
-        self.pairs_scroll.verticalScrollBar().valueChanged.connect(
-            self._schedule_pair_hover_sync
-        )
+        self.history_strip = QWidget()
+        self.history_strip.setObjectName("historyStrip")
+        self.history_layout = QHBoxLayout(self.history_strip)
+        self.history_layout.setContentsMargins(0, 0, 0, 2)
+        self.history_layout.setSpacing(6)
+        self.history_strip.hide()
 
         self.content_stack.addWidget(self.message_output)
-        self.content_stack.addWidget(self.pairs_scroll)
+        card_layout.addWidget(self.history_strip)
         card_layout.addWidget(self.section)
         card_layout.addWidget(self.content_stack, 1)
 
@@ -992,12 +1152,144 @@ class ResultWindow(QWidget):
         self._painted_theme = painted
         self.setStyleSheet(build_window_style(painted))
         self.title_bar.theme_button.set_dark(painted == "dark")
+        self._rebuild_history()
         # The status pill paints from a dynamic property, so it needs a
         # re-polish to pick the new palette up.
         for widget in (self.status_pill, self.status_dot, self.status):
             widget.style().unpolish(widget)
             widget.style().polish(widget)
         self.update()
+
+    # ---- translation history ------------------------------------------
+    def active_job(self) -> TranslationJob | None:
+        return self._history.active
+
+    def add_job(
+        self,
+        mode: str,
+        prompt: str,
+        label: str,
+        source_text: str | None = None,
+        image_path: Path | None = None,
+    ) -> TranslationJob:
+        """Register a translation that has just been sent."""
+        # Starting one translation must not take the screen away from a
+        # finished one being read; that is the whole point of running the next
+        # passage while you read this one.
+        reading = self._is_reading_result()
+        job, evicted = self._history.add(mode, prompt, label, source_text, image_path)
+        for gone in evicted:
+            page = self._pages.pop(gone.job_id, None)
+            if page is not None:
+                self.content_stack.removeWidget(page)
+                page.deleteLater()
+        if not reading:
+            self._history.activate(job.job_id)
+        self._rebuild_history()
+        self._render_active()
+        self._show_near_cursor()
+        return job
+
+    def complete_job(self, job_id: int, response: str) -> None:
+        job = self._history.complete(job_id, response)
+        if job is None:
+            return
+        job.pairs = parse_translation_pairs(response, job.source_text)
+        if not job.pairs:
+            self._history.fail(
+                job_id,
+                "No recognizable English-Chinese sentence pairs were returned. "
+                "Please try again, or capture the area again.",
+            )
+        else:
+            page = PairsPage()
+            page.viewport().installEventFilter(self)
+            page.verticalScrollBar().valueChanged.connect(self._schedule_pair_hover_sync)
+            page.fill(job.pairs, self._pair_font_px, self)
+            self._pages[job_id] = page
+            self.content_stack.addWidget(page)
+        self._settle_job(job)
+
+    def fail_job(self, job_id: int, error: str) -> None:
+        job = self._history.fail(job_id, error)
+        if job is not None:
+            self._settle_job(job)
+
+    def _settle_job(self, job: TranslationJob) -> None:
+        self._rebuild_history()
+        active = self._history.active
+        if active is not None and active.job_id == job.job_id:
+            self._render_active()
+            self._show_near_cursor()
+        # Otherwise the tab keeps its unread dot and the reader is left alone.
+
+    def _is_reading_result(self) -> bool:
+        job = self._history.active
+        return bool(self.isVisible() and job is not None and job.status == DONE)
+
+    def _activate_job(self, job_id: int) -> None:
+        if self._history.activate(job_id) is None:
+            return
+        self._rebuild_history()
+        self._render_active()
+
+    def _rebuild_history(self) -> None:
+        jobs = self._history.jobs
+        palette = THEMES.get(self._painted_theme, LIGHT_PALETTE)
+        active = self._history.active
+        active_id = active.job_id if active else None
+        for job_id, tab in list(self._tabs.items()):
+            if self._history.get(job_id) is None:
+                self.history_layout.removeWidget(tab)
+                tab.deleteLater()
+                del self._tabs[job_id]
+        for job in jobs:
+            tab = self._tabs.get(job.job_id)
+            if tab is None:
+                tab = HistoryTab(job.job_id)
+                tab.clicked.connect(lambda _=False, i=job.job_id: self._activate_job(i))
+                self._tabs[job.job_id] = tab
+                self.history_layout.addWidget(tab)
+            tab.render_job(job, job.job_id == active_id, palette)
+        # One translation needs no strip; it would be a label for itself.
+        self.history_strip.setVisible(len(jobs) > 1)
+
+    def _render_active(self) -> None:
+        job = self._history.active
+        if job is None:
+            return
+        self.retry_button.setEnabled(job.can_retry)
+        if job.is_running:
+            self._set_status(job.label, "loading")
+            self.section.setText("Translation")
+            self.message_output.setPlainText(
+                "Waiting for Codex to return a translation…"
+            )
+            self.content_stack.setCurrentWidget(self.message_output)
+            self._copy_text = ""
+            self.copy_button.setEnabled(False)
+            self._active_page = None
+            return
+        if job.status == FAILED:
+            self._set_status("Failed", "error")
+            self.section.setText("Message")
+            self.message_output.setPlainText(job.error)
+            self.content_stack.setCurrentWidget(self.message_output)
+            self._copy_text = ""
+            self.copy_button.setEnabled(False)
+            self._active_page = None
+            return
+        page = self._pages.get(job.job_id)
+        if page is None:
+            return
+        self._copy_text = format_translation_pairs(job.pairs)
+        self.section.setText("Bilingual translation")
+        self.copy_button.setText("Copy bilingual text")
+        self.copy_button.setEnabled(bool(self._copy_text))
+        self._set_status("Complete", "success")
+        self.content_stack.setCurrentWidget(page)
+        self._active_page = page
+        self._schedule_pair_hover_sync()
 
     def set_backend_info(self, model: str, effort: str) -> None:
         self.subtitle_label.setText(format_backend_info(model, effort))
@@ -1010,10 +1302,11 @@ class ResultWindow(QWidget):
         if font_px == self._pair_font_px:
             return
         self._pair_font_px = font_px
-        for card in self.pairs_container.findChildren(TranslationPairCard):
-            card.set_font_size(font_px)
-        # The cards keep their old height until the layout re-measures them.
-        self.pairs_container.adjustSize()
+        for page in self._pages.values():
+            for card in page.cards():
+                card.set_font_size(font_px)
+            # Cards keep their old height until the layout re-measures them.
+            page.container.adjustSize()
         self._schedule_pair_hover_sync()
         if announce:
             self.pair_font_size_changed.emit(font_px)
@@ -1043,11 +1336,11 @@ class ResultWindow(QWidget):
         """
         # The sync is deferred, so it can land before the UI is built or after
         # the window has been torn down; a scrollbar signal reaches it in both.
-        scroll = getattr(self, "pairs_scroll", None)
+        scroll = getattr(self, "_active_page", None)
         if scroll is None:
             return
         try:
-            cards = self.pairs_container.findChildren(TranslationPairCard)
+            cards = scroll.cards()
         except RuntimeError:
             return  # the C++ side is already gone
         if not cards:
@@ -1082,7 +1375,8 @@ class ResultWindow(QWidget):
                     if moved <= CLICK_SLOP_PX:
                         card.toggle_marked()
         if (
-            watched is self.pairs_scroll.viewport()
+            self._active_page is not None
+            and watched is self._active_page.viewport()
             and event.type() == QEvent.Type.Wheel
             and event.modifiers() & Qt.KeyboardModifier.ControlModifier
         ):
@@ -1148,34 +1442,6 @@ class ResultWindow(QWidget):
         self.copy_button.setEnabled(bool(text.strip()))
         self._show_near_cursor()
 
-    def show_bilingual_result(
-        self,
-        source_text: str | None,
-        response_text: str,
-    ) -> None:
-        pairs = parse_translation_pairs(response_text, source_text)
-        if not pairs:
-            self.show_error(
-                "No recognizable English–Chinese sentence pairs were returned. "
-                "Please capture the screenshot again."
-            )
-            return
-        self._clear_pairs()
-        for pair in pairs:
-            card = TranslationPairCard(pair, self._pair_font_px)
-            for target in card.hover_targets():
-                target.installEventFilter(self)
-            self.pairs_layout.addWidget(card)
-        self.pairs_layout.addStretch(1)
-
-        self._copy_text = format_translation_pairs(pairs)
-        self.section.setText("Bilingual translation")
-        self.copy_button.setText("Copy bilingual text")
-        self.copy_button.setEnabled(bool(self._copy_text))
-        self.content_stack.setCurrentWidget(self.pairs_scroll)
-        self.pairs_scroll.verticalScrollBar().setValue(0)
-        self._set_status("Complete", "success")
-        self._show_near_cursor()
 
     def show_error(self, message: str) -> None:
         self._set_status("Failed", "error")
@@ -1190,12 +1456,6 @@ class ResultWindow(QWidget):
         QGuiApplication.clipboard().setText(self._copy_text)
         self._set_status("Copied", "success")
 
-    def _clear_pairs(self) -> None:
-        while self.pairs_layout.count():
-            item = self.pairs_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
 
     def _move_near_cursor(self) -> None:
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()

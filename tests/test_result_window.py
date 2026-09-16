@@ -1,6 +1,7 @@
 from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtWidgets import QApplication
 
+from lamarck_translator.history import SELECTION
 from lamarck_translator.result_window import (
     HTBOTTOM,
     HTBOTTOMLEFT,
@@ -17,6 +18,13 @@ from lamarck_translator.result_window import (
     format_backend_info,
     resize_hit_test,
 )
+
+
+def show_pairs(window, source, response):
+    """Put a finished translation on screen, the way the app now does it."""
+    job = window.add_job(SELECTION, "prompt", "Translating\u2026", source)
+    window.complete_job(job.job_id, response)
+    return job
 
 
 def test_backend_info_line_names_the_model_and_effort_in_use() -> None:
@@ -115,7 +123,7 @@ def test_bilingual_result_builds_linked_pair_cards() -> None:
         "]}"
     )
 
-    window.show_bilingual_result("First sentence. Second sentence.", response)
+    show_pairs(window, "First sentence. Second sentence.", response)
     app.processEvents()
 
     cards = window.findChildren(TranslationPairCard)
@@ -142,7 +150,7 @@ def test_screenshot_result_uses_recognized_source_in_bilingual_cards() -> None:
         '"translation":"截图中的句子。"}]}'
     )
 
-    window.show_bilingual_result(None, response)
+    show_pairs(window, None, response)
     app.processEvents()
 
     cards = window.findChildren(TranslationPairCard)
@@ -235,7 +243,7 @@ def test_ctrl_wheel_resizes_the_sentence_text_and_plain_wheel_does_not() -> None
     app = QApplication.instance() or QApplication([])
     window = ResultWindow()
     window._show_near_cursor = lambda: None
-    window.show_bilingual_result(
+    show_pairs(window, 
         "Alpha. Beta.",
         '{"pairs":[{"source":"Alpha.","translation":"甲。"},'
         '{"source":"Beta.","translation":"乙。"}]}',
@@ -244,7 +252,7 @@ def test_ctrl_wheel_resizes_the_sentence_text_and_plain_wheel_does_not() -> None
     start = window.pair_font_size()
 
     def wheel(delta: int, modifier: Qt.KeyboardModifier) -> None:
-        viewport = window.pairs_scroll.viewport()
+        viewport = window._active_page.viewport()
         event = QWheelEvent(
             QPointF(10, 10), viewport.mapToGlobal(QPoint(10, 10)),
             QPoint(0, 0), QPoint(0, delta),
@@ -267,7 +275,7 @@ def test_ctrl_wheel_resizes_the_sentence_text_and_plain_wheel_does_not() -> None
     # every card follows, and the size survives the next translation
     cards = window.findChildren(TranslationPairCard)
     assert all(f"font-size: {before}px" in c.source_label.styleSheet() for c in cards)
-    window.show_bilingual_result(
+    show_pairs(window, 
         "Gamma.", '{"pairs":[{"source":"Gamma.","translation":"丙。"}]}'
     )
     app.processEvents()
@@ -378,7 +386,7 @@ def _six_card_window(height: int = 1000):
     pairs = ",".join(
         f'{{"source":"Sentence {i}.","translation":"第 {i} 句。"}}' for i in range(1, 7)
     )
-    window.show_bilingual_result(None, '{"pairs":[' + pairs + ']}')
+    show_pairs(window, None, '{"pairs":[' + pairs + ']}')
     for _ in range(6):
         app.processEvents()
     return app, window, window.findChildren(TranslationPairCard), FakeCursor
@@ -422,7 +430,7 @@ def test_scrolling_under_a_still_pointer_moves_the_highlight() -> None:
     _point_at(app, cards[0], cursor)
     assert lit() == [0]
 
-    bar = window.pairs_scroll.verticalScrollBar()
+    bar = window._active_page.verticalScrollBar()
     assert bar.maximum() > 0, "the list has to be scrollable for this to mean anything"
     bar.setValue(bar.maximum())
     for _ in range(4):
@@ -488,4 +496,117 @@ def test_the_mark_and_the_hover_highlight_coexist() -> None:
         assert palette["pair_marked_bg"] != palette["pair_marked_hover_bg"], (
             "a marked card must still react to the pointer"
         )
+    window.close()
+
+
+def _run(window, source, response=None):
+    """Start a job; complete it only when a response is given."""
+    job = window.add_job(SELECTION, "prompt", "Translating…", source)
+    if response is not None:
+        window.complete_job(job.job_id, response)
+    return job
+
+
+def _reply(source, translation="译文。"):
+    return '{"pairs":[{"source":"%s","translation":"%s"}]}' % (source, translation)
+
+
+def test_starting_a_translation_does_not_take_away_the_one_being_read() -> None:
+    # The whole point of running the next passage while reading this one.
+    app = QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    window.show()
+
+    first = _run(window, "First.", _reply("First."))
+    app.processEvents()
+    assert window.active_job().job_id == first.job_id
+
+    second = _run(window, "Second.")           # still running
+    app.processEvents()
+
+    assert window.active_job().job_id == first.job_id, "stayed on what is being read"
+    assert window.section.text() == "Bilingual translation"
+
+    # ...and the finished one waits behind an unread mark rather than barging in
+    window.complete_job(second.job_id, _reply("Second."))
+    app.processEvents()
+    assert window.active_job().job_id == first.job_id
+    assert window._history.get(second.job_id).seen is False
+    window.close()
+
+
+def test_a_new_translation_shows_at_once_when_nothing_is_being_read() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+
+    job = _run(window, "Only one.")
+    app.processEvents()
+
+    assert window.active_job().job_id == job.job_id
+    assert window.history_strip.isVisible() is False, "one translation needs no strip"
+    window.close()
+
+
+def test_history_keeps_five_and_evicts_the_oldest() -> None:
+    from lamarck_translator.history import MAX_HISTORY
+
+    app = QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+
+    jobs = []
+    for i in range(MAX_HISTORY + 2):
+        job = _run(window, f"Sentence {i}.", _reply(f"Sentence {i}."))
+        window._activate_job(job.job_id)        # read it, so the next one queues
+        jobs.append(job)
+    app.processEvents()
+
+    kept = [j.job_id for j in window._history.jobs]
+    assert len(kept) == MAX_HISTORY
+    assert jobs[0].job_id not in kept and jobs[1].job_id not in kept
+    assert jobs[-1].job_id in kept
+    assert len(window._tabs) == MAX_HISTORY, "evicted tabs are removed too"
+    assert jobs[0].job_id not in window._pages, "and so are their pages"
+    window.close()
+
+
+def test_switching_back_keeps_that_translation_s_marks_and_cards() -> None:
+    app = QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    window.show()
+
+    first = _run(window, "First.", _reply("First."))
+    app.processEvents()
+    window._pages[first.job_id].cards()[0].toggle_marked()
+
+    second = _run(window, "Second.", _reply("Second."))
+    window._activate_job(second.job_id)
+    app.processEvents()
+    assert window.active_job().job_id == second.job_id
+
+    window._activate_job(first.job_id)
+    app.processEvents()
+    card = window._pages[first.job_id].cards()[0]
+    assert card.source_label.text() == "First."
+    assert card.is_marked() is True, "a mark survives a trip through the history"
+    window.close()
+
+
+def test_a_screenshot_job_cannot_be_retried() -> None:
+    from lamarck_translator.history import SCREENSHOT
+
+    app = QApplication.instance() or QApplication([])
+    window = ResultWindow()
+    window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+
+    job = window.add_job(SCREENSHOT, "prompt", "Reading image…")
+    window.complete_job(job.job_id, _reply("From an image."))
+    app.processEvents()
+
+    assert job.can_retry is False
+    assert window.retry_button.isEnabled() is False
+    assert window._tabs[job.job_id].toolTip().endswith("Screenshot translation")
     window.close()
