@@ -54,7 +54,8 @@ Three parts carry most of the weight:
 | [hotkeys.py](./src/lamarck_translator/hotkeys.py)                     | Global hotkeys via `RegisterHotKey` and `WM_HOTKEY`                     |
 | [config.py](./src/lamarck_translator/config.py)                       | Configuration file loading and saving                                   |
 | [worker.py](./src/lamarck_translator/worker.py)                       | Background translation task, temporary screenshot cleanup               |
-| [tests/](./tests/)                                                    | 42 pytest tests                                                         |
+| [history.py](./src/lamarck_translator/history.py)                     | The last five translations, their state, and the in-flight cap          |
+| [tests/](./tests/)                                                    | 59 pytest tests                                                         |
 | [build.ps1](./build.ps1)                                              | PyInstaller packaging script                                            |
 
 ---
@@ -96,6 +97,12 @@ Run `codex login` once before first use. Codex CLI accepts either a ChatGPT logi
 2. Hold the left button and drag a box over the content.
 3. Release to submit, or press `Esc` to cancel.
 
+**While you read**
+
+Sending a translation never takes the screen away from a finished one you are reading. It opens a tab above the text and translates behind it, and marks that tab with a dot when the result lands, so you can finish the passage you are on first. Up to three translations run at once, and the last five stay reachable: click a tab to go back to one, with its green read-marks and scroll position where you left them.
+
+The sun and moon button in the title bar switches between the light and dark themes. By default the window follows the Windows setting and keeps following it; pressing the button pins a theme instead, and setting `theme` back to `system` in the configuration file restores the following behaviour.
+
 The tray menu triggers the same two actions, and can also check the Codex login status or quit the app. The window title area shows the OpenAI account the local Codex CLI is currently signed in as; after switching accounts it refreshes on the next translation. The line above it names the model and reasoning effort every translation runs with, exactly as they are passed to Codex; change them in the configuration file.
 
 > **Tip:** some apps are slow to fill the clipboard with large selections. Raise `clipboard_wait_ms` if `Alt+C` comes back empty on long passages.
@@ -118,9 +125,10 @@ Created on first launch at:
 | `clipboard_wait_ms` | `220`                        | How long to wait for the source app to fill the clipboard                      |
 | `restore_clipboard` | `true`                       | Put the original clipboard contents back after capture                         |
 | `pair_font_size`    | `15`                         | Sentence-text size in pixels; also set by Ctrl + wheel, which saves it here    |
+| `theme`             | `system`                     | `system`, `light` or `dark`; the title-bar button writes the last two here     |
 | `prompt`            | scientific-translation style | Translation style only; the structured-output format is appended automatically |
 
-Shortcuts take the form `Modifier+Key`, where the modifiers are `Ctrl` / `Alt` / `Shift` / `Win` and the key is a single letter or digit, or `F1`–`F24`. Restart the app after editing the file, except for `pair_font_size`, which the window writes itself.
+Shortcuts take the form `Modifier+Key`, where the modifiers are `Ctrl` / `Alt` / `Shift` / `Win` and the key is a single letter or digit, or `F1`–`F24`. Restart the app after editing the file, except for `pair_font_size` and `theme`, which the window writes itself.
 
 ## Packaging
 

@@ -54,7 +54,8 @@ Alt+S   框选截图  ->  按 DPI 换算裁 PNG  ->  codex exec --image  ->  句
 | [hotkeys.py](../src/lamarck_translator/hotkeys.py)                       | 用 `RegisterHotKey` + `WM_HOTKEY` 注册全局热键          |
 | [config.py](../src/lamarck_translator/config.py)                         | 配置文件的读取与写入                                    |
 | [worker.py](../src/lamarck_translator/worker.py)                         | 后台翻译任务、临时截图清理                              |
-| [tests/](../tests/)                                                      | 42 个 pytest 测试                                       |
+| [history.py](../src/lamarck_translator/history.py)                       | 最近五条翻译、各自状态、并行上限                        |
+| [tests/](../tests/)                                                      | 59 个 pytest 测试                                       |
 | [build.ps1](../build.ps1)                                                | PyInstaller 打包脚本                                    |
 
 ---
@@ -96,6 +97,12 @@ python -m lamarck_translator
 2. 按住鼠标左键框选内容。
 3. 松开即提交，按 `Esc` 取消。
 
+**边读边翻**
+
+发起一次翻译，不会把你正在读的那条从屏幕上换走。它会在正文上方开一个标签、在后台翻译，结果到了就在标签上点一个圆点，让你先把手头这段读完。最多三条同时翻译，最近五条都留着：点标签就能切回去，绿色已读标记和滚动位置都还在你离开时的地方。
+
+标题栏的太阳 / 月亮按钮切换浅色与深色主题。默认跟随 Windows 的设置并持续跟随；按了按钮就固定为某一种，把配置文件里的 `theme` 改回 `system` 可以恢复跟随。
+
 托盘菜单可以触发同样的两个操作，也可以检查 Codex 登录状态或退出程序。窗口标题区显示本机 Codex CLI 当前登录的 OpenAI 账号；切换账号后会在下一次翻译时刷新。它上面那一行标明每次翻译使用的模型和 reasoning effort，与实际传给 Codex 的值完全一致；要修改请改配置文件。
 
 > **提示：** 某些软件复制大段文字较慢。如果 `Alt+C` 在长段落上取不到内容，调大 `clipboard_wait_ms`。
@@ -118,9 +125,10 @@ python -m lamarck_translator
 | `clipboard_wait_ms` | `220`             | 等待源程序把内容写进剪贴板的时长                            |
 | `restore_clipboard` | `true`            | 取词结束后把原剪贴板内容还原                                |
 | `pair_font_size`    | `15`              | 句对文字字号（像素）；Ctrl+滚轮调整后会写回这里             |
+| `theme`             | `system`          | 取 `system` / `light` / `dark`；标题栏按钮会写回后两者      |
 | `prompt`            | 科研翻译风格      | 只管翻译风格；结构化输出格式由程序自动追加                  |
 
-快捷键写作 `修饰键+主键`，修饰键为 `Ctrl` / `Alt` / `Shift` / `Win`，主键为单个字母或数字，或 `F1`–`F24`。改完配置需要重启程序；只有 `pair_font_size` 例外，它由窗口自己写入。
+快捷键写作 `修饰键+主键`，修饰键为 `Ctrl` / `Alt` / `Shift` / `Win`，主键为单个字母或数字，或 `F1`–`F24`。改完配置需要重启程序；只有 `pair_font_size` 和 `theme` 例外，它们由窗口自己写入。
 
 ## 打包
 
