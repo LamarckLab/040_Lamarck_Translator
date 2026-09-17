@@ -18,11 +18,11 @@
 
 ## Overview
 
-A tray-resident **selection and screenshot translator for Windows**, built for reading English literature. Select a sentence in a browser or Zotero and press `Alt+C`; drag a box over a scanned PDF or a figure and press `Alt+S`. Either way the result comes back as sentence-by-sentence English–Chinese pairs.
+A tray-resident **selection and screenshot translator for Windows**, for reading English material of any kind — a paper, a library's documentation, an issue thread, an error dialog. Select a sentence in a browser or in Zotero and press `Alt+C`; drag a box over a scanned PDF, a figure, or anything that will not let you select text, and press `Alt+S`. Either way the result comes back as sentence-by-sentence English–Chinese pairs.
 
 What sets it apart from the usual translation utility is the backend: it shells out to the **local `codex` CLI** and reuses the login already stored there. No translation API key is configured, stored, or read by this project — translation runs on whichever Codex account is signed in on the machine.
 
-The default prompt is tuned for scientific reading. It preserves terminology, abbreviations, formulas, residue numbers, chain names, file paths, commands, and flags, and keeps the English in parentheses after a Chinese term where that helps.
+The default prompt is tuned for technical reading, across protein science, structural biology, machine learning, and software engineering. It preserves terminology, abbreviations, formulas, residue numbers, chain names, file paths, commands, and flags, and keeps the English in parentheses after a Chinese term where that helps.
 
 ## How It Works
 
@@ -126,7 +126,7 @@ Created on first launch at:
 | `restore_clipboard` | `true`                       | Put the original clipboard contents back after capture                         |
 | `pair_font_size`    | `15`                         | Sentence-text size in pixels; also set by Ctrl + wheel, which saves it here    |
 | `theme`             | `system`                     | `system`, `light` or `dark`; the title-bar button writes the last two here     |
-| `prompt`            | scientific-translation style | Translation style only; the structured-output format is appended automatically |
+| `prompt`            | technical-translation style  | Translation style only; the structured-output format is appended automatically |
 
 Shortcuts take the form `Modifier+Key`, where the modifiers are `Ctrl` / `Alt` / `Shift` / `Win` and the key is a single letter or digit, or `F1`–`F24`. Restart the app after editing the file, except for `pair_font_size` and `theme`, which the window writes itself.
 
